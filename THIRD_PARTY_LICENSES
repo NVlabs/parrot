@@ -1,0 +1,150 @@
+# Third-Party Licenses
+
+This document contains the licenses and copyright notices for third-party software components used in the parrot project.
+
+## Dependencies
+
+### 1. NVIDIA CCCL (CUDA C++ Core Libraries)
+
+**Repository:** https://github.com/NVIDIA/cccl  
+**License:** Apache License 2.0  
+**Components Used:** Thrust, CUB, libcudacxx  
+**Version:** main branch (latest)
+
+```
+Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+#### CCCL Components:
+
+##### Thrust
+High-level C++ parallel algorithms library for CUDA.
+- **License:** Apache License 2.0
+- **Copyright:** Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES
+
+##### CUB
+Cooperative primitives for CUDA kernel development.
+- **License:** Apache License 2.0  
+- **Copyright:** Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES
+
+##### libcudacxx
+CUDA C++ Standard Library.
+- **License:** Apache License 2.0
+- **Copyright:** Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES
+
+### 2. doctest
+
+**Repository:** https://github.com/doctest/doctest  
+**License:** MIT License  
+**Version:** v2.4.11  
+**Usage:** Unit testing framework
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2016-2023 Viktor Kirilov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### 3. NVIDIA CUDA Toolkit
+
+**Vendor:** NVIDIA Corporation  
+**License:** NVIDIA Software License Agreement  
+**Usage:** CUDA runtime, compiler, and development tools
+
+The CUDA Toolkit is provided by NVIDIA Corporation under the NVIDIA Software License Agreement. Users must comply with the terms of this license when using CUDA components.
+
+For the complete license terms, please refer to:
+- CUDA Toolkit License: https://docs.nvidia.com/cuda/eula/index.html
+
+## Documentation Dependencies (Optional)
+
+The following dependencies are used only for building documentation and are not included in the distributed software:
+
+### Sphinx and Related Packages
+
+**License:** BSD License (various versions)  
+**Usage:** Documentation generation  
+**Components:**
+- sphinx==7.1.2
+- sphinx-rtd-theme==1.3.0  
+- breathe==4.35.0
+- furo==2023.9.10
+- exhale==0.3.7
+- requests>=2.25.0
+
+These packages are used only during the documentation build process and are not part of the distributed parrot library.
+
+## Build Tools
+
+### CMake
+
+**License:** BSD 3-Clause License  
+**Usage:** Build system configuration  
+**Minimum Version:** 3.10
+
+CMake is used as the build system but is not distributed with the project.
+
+## Notes
+
+1. **NVIDIA Components:** All NVIDIA-authored components (CCCL, Thrust, CUB, libcudacxx, CUDA Toolkit) are licensed under terms compatible with Apache 2.0 or are proprietary NVIDIA software used under appropriate licensing terms.
+
+2. **Runtime Dependencies:** The parrot library requires NVIDIA CUDA runtime libraries to be installed on the target system. These are not distributed with parrot and must be obtained separately from NVIDIA.
+
+3. **Header-Only Libraries:** Some dependencies are header-only libraries that are compiled into the final binary. Their license terms are preserved in this document.
+
+4. **FetchContent:** Dependencies marked as using CMake FetchContent are automatically downloaded during the build process from their respective repositories.
+
+## License Compatibility
+
+All third-party dependencies used in parrot are compatible with the Apache License 2.0 under which parrot is distributed:
+
+- **Apache 2.0 (NVIDIA CCCL components):** Fully compatible
+- **MIT (doctest):** Compatible with Apache 2.0-cpp
+- **NVIDIA CUDA Toolkit:** Proprietary license, used under appropriate terms
+
+## Compliance
+
+This project complies with all license requirements of its dependencies:
+
+1. All required copyright notices are preserved
+2. License texts are included where required
+3. Attribution requirements are met
+4. No incompatible license combinations exist
+
+For questions about licensing or to report license compliance issues, please contact the project maintainers.
+
+---
+
+**Last Updated:** January 2025  
+**Project:** parrot  
+**License:** Apache License 2.0

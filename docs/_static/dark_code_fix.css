@@ -1,0 +1,29 @@
+/* Force dark mode code blocks to use darker background */
+html[data-theme="dark"] div.highlight,
+html[data-theme="dark"] div.highlight-cpp,
+html[data-theme="dark"] div.highlight-cpp div.highlight,
+html[data-theme="dark"] div.highlight-cpp.notranslate div.highlight {
+    background: #21222c !important;
+}
+
+html[data-theme="dark"] pre,
+html[data-theme="dark"] div.highlight pre,
+html[data-theme="dark"] div.highlight-cpp pre,
+html[data-theme="dark"] div.highlight-cpp div.highlight pre {
+    background-color: #21222c !important;
+}
+
+/* Also fix code blocks in the built files */
+body[data-theme="dark"] div.highlight,
+body[data-theme="dark"] div.highlight-cpp,
+body[data-theme="dark"] div.highlight-cpp div.highlight,
+body[data-theme="dark"] div.highlight-cpp.notranslate div.highlight {
+    background: #21222c !important;
+}
+
+body[data-theme="dark"] pre,
+body[data-theme="dark"] div.highlight pre,
+body[data-theme="dark"] div.highlight-cpp pre,
+body[data-theme="dark"] div.highlight-cpp div.highlight pre {
+    background-color: #21222c !important;
+} 

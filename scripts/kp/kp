@@ -1,0 +1,322 @@
+#!/usr/bin/env python
+#
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved. SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+import argparse
+import os
+import re
+import subprocess
+
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.io as pio
+from PIL import Image
+from plotly.colors import qualitative
+from tqdm import tqdm
+
+IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda"]
+
+
+def remove_matching_angle_brackets(text, brackets):
+    result = []
+    stack = []
+    for char in text:
+        if char == brackets[0]:
+            stack.append(len(result))
+        elif char == brackets[1] and stack:
+            start_idx = stack.pop()
+            result = result[:start_idx]
+        else:
+            result.append(char)
+    return "".join(result)
+
+
+def after(s: str, t: str) -> str:
+    return s[s.index(t) + len(t) :]
+
+
+def before(s: str, t: str) -> str:
+    return s[: s.index(t)]
+
+
+def preprocess_kernel_name(name):
+    backup = name
+    name = remove_matching_angle_brackets(name, "<>")
+    name = remove_matching_angle_brackets(name, "()")
+    name = re.sub(r"void ", "", name)
+    if "::" in name:
+        name = "::".join(x for x in name.split("::") if not any(c.isdigit() for c in x))
+        name = re.sub(r"::::", "::", name)
+    if "kernel_agent" in name:
+        inner = preprocess_kernel_name(after(backup, "<"))
+        name = name.split("::")[-1]
+        return f"{name}<{before(inner, ",")}>"
+    return name.strip()
+
+
+def load_kernel_data(file_path):
+    try:
+        data = pd.read_csv(file_path)
+        data["Name"] = data["Name"].apply(preprocess_kernel_name)
+        return data[["Name", "Total Time (ns)", "Instances"]]
+    except Exception as e:
+        print(f"Error reading {file_path}: {e}")
+        return None
+
+
+def rotate(lst, n):
+    return lst[n:] + lst[:n]
+
+
+def create_stacked_bar_chart(data_frames, labels, chart_name, export_html):
+    sorted_data = sorted(
+        zip(data_frames, labels),
+        key=lambda pair: (
+            pair[0]["Total Time (ns)"].sum() // (100 if "matx" in pair[1] else 1)
+            if pair[0] is not None
+            else 0
+        ),
+        reverse=True,
+    )
+    data_frames, labels = zip(*sorted_data)
+
+    fig = go.Figure()
+    totals = []
+    instance_counts = []
+    color_palette = rotate(qualitative.Plotly, 7)
+    n = len(qualitative.Plotly)
+
+    for df, label in zip(data_frames, labels):
+        if df is not None:
+            div_factor = 100 if "matx" in label else 1
+            totals.append(df["Total Time (ns)"].sum() // div_factor)
+            instance_counts.append(df["Instances"].sum() // div_factor)
+            for i, row in df.iterrows():
+                fig.add_trace(
+                    go.Bar(
+                        name=row["Name"],
+                        x=[label],
+                        y=[row["Total Time (ns)"] / div_factor],
+                        hoverinfo="text",
+                        hoverlabel=dict(font_size=30),
+                        text=(
+                            f"{row['Name']} "
+                            f"({row['Total Time (ns)']} ns | {row['Instances']})"
+                        ),
+                        marker_color=color_palette[i % n],
+                    )
+                )
+
+    max_total = max(totals)
+
+    for i, (total, count) in enumerate(zip(totals, instance_counts)):
+        fig.add_annotation(
+            x=labels[i],
+            y=total,
+            text=f"Total: {total:,} Kernels: {count}",
+            showarrow=True,
+            ax=0,
+            ay=-40,
+            font=dict(size=12, color="black"),
+            align="center",
+            bgcolor="rgba(255, 255, 255, 0.8)",
+            borderpad=5,
+            bordercolor="black",
+            borderwidth=2,
+        )
+
+        # Add logo image
+        for name in IMGS:
+            if name in labels[i]:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                assets_dir = os.path.join(script_dir, "assets")
+                image_file = os.path.join(assets_dir, f"{name}.png")
+                if os.path.exists(image_file):
+                    fig.add_layout_image(
+                        dict(
+                            source=Image.open(image_file),
+                            xref="x",
+                            yref="paper",
+                            x=labels[i],
+                            y=(
+                                (total / max_total) + 0.075
+                                if total < max_total * 0.75
+                                else 0.025
+                            ),
+                            sizex=0.5,
+                            sizey=0.5,
+                            xanchor="center",
+                            yanchor="bottom",
+                        )
+                    )
+                break
+
+    fig.update_layout(
+        barmode="stack",
+        title=f"CUDA Kernel Profiling ({chart_name})",
+        xaxis_title="Python File",
+        yaxis_title="Total Time (ns)",
+        hovermode="x",
+        showlegend=False,
+        bargap=0.2,
+        margin=dict(t=100),  # Increase top margin to accommodate logos
+    )
+
+    if export_html:
+        pio.write_html(fig, file=f"{chart_name}.html", auto_open=False)
+
+    fig.show()
+
+
+def run_nsys(file_path, output_dir, verbose):
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    output_name = os.path.join(output_dir, base_name)
+    file_path = os.path.abspath(file_path)
+    command = [
+        "nsys",
+        "profile",
+        "--trace=cuda",
+        "-o",
+        output_name,
+    ]
+    if file_path.endswith(".py"):
+        command += ["python"]
+    command += [file_path]
+    try:
+        if verbose:
+            subprocess.run(command, check=True)
+        else:
+            subprocess.run(command, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running nsys on {file_path}: {e}")
+    return output_name + ".nsys-rep", output_name + ".sqlite"
+
+
+def generate_csv(nsys_rep, base_name, verbose):
+    command = [
+        "nsys",
+        "stats",
+        "--force-overwrite",
+        "true",
+        "--report",
+        "cuda_gpu_kern_sum",
+        "--report",
+        "cuda_api_sum",
+        "--format",
+        "csv,csv",
+        "--output",
+        base_name + "," + base_name,
+        nsys_rep,
+    ]
+    try:
+        if verbose:
+            subprocess.run(command, check=True)
+        else:
+            subprocess.run(command, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating CSV files from {nsys_rep}: {e}")
+
+
+def clean_up(files):
+    for file in files:
+        if os.path.exists(file):
+            os.remove(file)
+
+
+def run_profiler(args):
+    subdir_path = os.path.join(os.getcwd(), args.subdir)
+    files = [
+        f for f in os.listdir(subdir_path) if f.endswith(".py") or f.endswith("_cu")
+    ]
+
+    if args.filter:
+        files = [f for f in files if args.filter in f]
+
+    output_dir = os.path.join(subdir_path, "nsys_results")
+    os.makedirs(output_dir, exist_ok=True)
+
+    for file in tqdm(files, desc="Profiling files"):
+        file_path = os.path.join(subdir_path, file)
+        if args.verbose:
+            print(f"✅ Processing {file}...")
+        nsys_rep, sqlite_file = run_nsys(file_path, output_dir, args.verbose)
+        base_name = os.path.splitext(nsys_rep)[0]
+        generate_csv(nsys_rep, base_name, args.verbose)
+        clean_up([nsys_rep, sqlite_file])
+
+
+def run_plotter(args):
+    results_dir = os.path.join(args.subdir, "nsys_results")
+    data_frames = []
+    labels = []
+    if not os.path.isdir(results_dir):
+        print(f"Directory {results_dir} does not exist or is invalid.")
+        return
+
+    for file_name in os.listdir(results_dir):
+        if file_name.endswith("_cuda_gpu_kern_sum.csv"):
+            file_path = os.path.join(results_dir, file_name)
+            df = load_kernel_data(file_path)
+            if df is not None:
+                data_frames.append(df)
+                labels.append(file_name.replace("_cuda_gpu_kern_sum.csv", ""))
+
+    if data_frames:
+        create_stacked_bar_chart(data_frames, labels, args.subdir, args.export_html)
+    else:
+        print("No valid CSV files found in the directory.")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run nsys profiling and generate plots."
+    )
+    parser.add_argument(
+        "subdir",
+        help="name of the subdirectory containing python files (e.g. sf2, mgc).",
+    )
+    parser.add_argument(
+        "-p",
+        "--plot-only",
+        action="store_true",
+        help="skip profiling and only generate plots",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="enable verbose output during profiling",
+    )
+    parser.add_argument(
+        "-f",
+        "--filter",
+        help="only profile Python files containing this string",
+    )
+    parser.add_argument(
+        "-e", "--export-html", help="export plot as HTML file", action="store_true"
+    )
+
+    args = parser.parse_args()
+
+    if not args.plot_only:
+        run_profiler(args)
+
+    run_plotter(args)
+
+
+if __name__ == "__main__":
+    main()

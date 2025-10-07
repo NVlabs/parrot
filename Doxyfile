@@ -1,0 +1,16 @@
+PROJECT_NAME           = "parrot"
+PROJECT_BRIEF          = "CUDA-accelerated lazy array operations in the style of Python"
+OUTPUT_DIRECTORY       = docs/doxygen
+CREATE_SUBDIRS         = NO
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+RECURSIVE              = YES
+EXCLUDE                = build
+INPUT                  = .
+FILE_PATTERNS          = *.hpp *.cpp *.cu
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml

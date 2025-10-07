@@ -1,0 +1,15 @@
+a.out
+build/
+docs/doxygen/
+docs/api/
+docs/builds/
+docs/doxyoutput/
+docs/examples.rst
+docs/parrot_v_thrust.rst
+docs/parrot_v_matx.rst
+.cursor/
+TODO*
+builds/
+compile_commands.json
+.cache/
+.vscode/

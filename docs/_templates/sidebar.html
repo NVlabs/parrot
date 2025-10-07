@@ -1,0 +1,484 @@
+<div class="sidebar-wrapper">
+  <div class="sidebar-brand">
+    <a href="{{ pathto(master_doc) }}" class="brand-logo">
+      <img src="{{ pathto('_static/logo.png', 1) }}" class="logo" alt="Logo" />
+      <div class="sidebar-brand-text">{{ project }}</div>
+    </a>
+  </div>
+
+  <div class="sidebar-search-container">
+    <form class="sidebar-search" action="{{ pathto('search') }}" method="get">
+      <input type="text" name="q" placeholder="Search documentation" class="search-input" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+  </div>
+
+  <!-- Start of scrollable area -->
+  <div class="sidebar-scroll">
+    <!-- Methods section now inside scrollable area -->
+    <div class="sidebar-methods">
+      <h2>Methods</h2>
+
+      <div class="method-category">
+        <h3>Fused</h3>
+
+        <div class="method-subcategory">
+          <h4>1-index Maps (Unary)</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-map{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-map{% endif %}"
+                class="method-link" data-target="cp-fusion-array-map">⭐ map</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-abs{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-abs{% endif %}"
+                class="method-link" data-target="cp-fusion-array-abs">abs</a></li>
+                <li><a
+                  href="{% if pagename == 'fusion_array' %}#cp-fusion-array-dble{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-dble{% endif %}"
+                  class="method-link" data-target="cp-fusion-array-dble">dble</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-enumerate{% else %}{{ pathto('fusion_array') }}#cp-enumerate{% endif %}"
+                class="method-link" data-target="cp-enumerate">enumerate</a>
+            </li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-even{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-even{% endif %}"
+                class="method-link" data-target="cp-fusion-array-even">even</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-half{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-half{% endif %}"
+                class="method-link" data-target="cp-fusion-array-half">half</a></li>
+            <li><a
+              href="{% if pagename == 'fusion_array' %}#cp-fusion-array-log{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-log{% endif %}"
+              class="method-link" data-target="cp-fusion-array-log">log</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-exp{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-exp{% endif %}"
+                class="method-link" data-target="cp-fusion-array-exp">exp</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-neg{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-neg{% endif %}"
+                class="method-link" data-target="cp-fusion-array-neg">neg</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-odd{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-odd{% endif %}"
+                class="method-link" data-target="cp-fusion-array-odd">odd</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-rand{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-rand{% endif %}"
+                class="method-link" data-target="cp-fusion-array-rand">rand</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-sign{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-sign{% endif %}"
+                class="method-link" data-target="cp-fusion-array-sign">sign</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-sq{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-sq{% endif %}"
+                class="method-link" data-target="cp-fusion-array-sq">sq</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-sqrt{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-sqrt{% endif %}"
+                class="method-link" data-target="cp-fusion-array-sqrt">sqrt</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>1-index Maps (Binary)</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-map2{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-map2{% endif %}"
+                class="method-link" data-target="cp-fusion-array-map2">⭐ map2</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-add{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-add{% endif %}"
+                class="method-link" data-target="cp-fusion-array-add">add (+)</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-div{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-div{% endif %}"
+                class="method-link" data-target="cp-fusion-array-div">div (/)</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-gt{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-gt{% endif %}"
+                class="method-link" data-target="cp-fusion-array-gt">gt (>)</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-gte{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-gte{% endif %}"
+                class="method-link" data-target="cp-fusion-array-gte">gte (>=)</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-idiv{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-idiv{% endif %}"
+                class="method-link" data-target="cp-fusion-array-idiv">idiv</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-lt{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-lt{% endif %}"
+                class="method-link" data-target="cp-fusion-array-lt">lt (<) </a>
+            </li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-lte{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-lte{% endif %}"
+                class="method-link" data-target="cp-fusion-array-lte">lte (<=) </a>
+            </li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-max{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-max{% endif %}"
+                class="method-link" data-target="cp-fusion-array-max">max</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-min{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-min{% endif %}"
+                class="method-link" data-target="cp-fusion-array-min">min</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-minus{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-minus{% endif %}"
+                class="method-link" data-target="cp-fusion-array-minus">minus (-)</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-times{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-times{% endif %}"
+                class="method-link" data-target="cp-fusion-array-times">times (*)</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-eq{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-eq{% endif %}"
+                class="method-link" data-target="cp-fusion-array-eq">eq (==)</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-pairs{% else %}{{ pathto('fusion_array') }}#cp-pairs{% endif %}"
+                class="method-link" data-target="cp-pairs">pairs</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>2-index Maps</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-map-adj{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-map-adj{% endif %}"
+                class="method-link" data-target="cp-fusion-array-map-adj">⭐ map_adj</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-deltas{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-deltas{% endif %}"
+                class="method-link" data-target="cp-fusion-array-deltas">deltas</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-differ{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-differ{% endif %}"
+                class="method-link" data-target="cp-fusion-array-differ">differ</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Joins</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-append{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-append{% endif %}"
+                class="method-link" data-target="cp-fusion-array-append">append</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-prepend{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-prepend{% endif %}"
+                class="method-link" data-target="cp-fusion-array-prepend">prepend</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Products</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-cross{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-cross{% endif %}"
+                class="method-link" data-target="cp-fusion-array-cross">cross</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-outer{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-outer{% endif %}"
+                class="method-link" data-target="cp-fusion-array-outer">outer</a></li>
+          </ul>
+        </div>
+
+
+        <div class="method-subcategory">
+          <h4>Reshapes</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-take{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-take{% endif %}"
+                class="method-link" data-target="cp-fusion-array-take">take</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-drop{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-drop{% endif %}"
+                class="method-link" data-target="cp-fusion-array-drop">drop</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-transpose{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-transpose{% endif %}"
+                class="method-link" data-target="cp-fusion-array-transpose">transpose</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-reshape{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-reshape{% endif %}"
+                class="method-link" data-target="cp-fusion-array-reshape">reshape</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-cycle{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-cycle{% endif %}"
+                class="method-link" data-target="cp-fusion-array-cycle">cycle</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-repeat{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-repeat{% endif %}"
+                class="method-link" data-target="cp-fusion-array-repeat">repeat</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Copying</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-replicate{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-replicate{% endif %}"
+                class="method-link" data-target="cp-fusion-array-replicate">replicate</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Permutations</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-rev{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-rev{% endif %}"
+                class="method-link" data-target="cp-fusion-array-rev">rev</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-gather{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-gather{% endif %}"
+                class="method-link" data-target="cp-fusion-array-gather">gather</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="method-category">
+        <h3>Conditionally Fused</h3>
+
+        <div class="method-subcategory">
+          <h4>Compactions</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-keep{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-keep{% endif %}"
+                class="method-link" data-target="cp-fusion-array-keep">⭐ keep</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-filter{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-filter{% endif %}"
+                class="method-link" data-target="cp-fusion-array-filter">filter</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-where{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-where{% endif %}"
+                class="method-link" data-target="cp-fusion-array-where">where</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-uniq{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-uniq{% endif %}"
+                class="method-link" data-target="cp-fusion-array-uniq">uniq</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-distinct{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-distinct{% endif %}"
+                class="method-link" data-target="cp-fusion-array-distinct">distinct</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="method-category">
+        <h3>Materializing</h3>
+
+        <div class="method-subcategory">
+          <h4>Reductions</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-reduce{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-reduce{% endif %}"
+                class="method-link" data-target="cp-fusion-array-reduce">⭐ reduce</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-all{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-all{% endif %}"
+                class="method-link" data-target="cp-fusion-array-all">all</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-any{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-any{% endif %}"
+                class="method-link" data-target="cp-fusion-array-any">any</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-maxr{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-maxr{% endif %}"
+                class="method-link" data-target="cp-fusion-array-maxr">maxr</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-max-by{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-max-by{% endif %}"
+                class="method-link" data-target="cp-fusion-array-max-by">max_by_key</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-minr{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-minr{% endif %}"
+                class="method-link" data-target="cp-fusion-array-minr">minr</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-minmax{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-minmax{% endif %}"
+                class="method-link" data-target="cp-fusion-array-minmax">minmax</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-prod{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-prod{% endif %}"
+                class="method-link" data-target="cp-fusion-array-prod">prod</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-sum{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-sum{% endif %}"
+                class="method-link" data-target="cp-fusion-array-sum">sum</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Scans</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-scan{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-scan{% endif %}"
+                class="method-link" data-target="cp-fusion-array-scan">⭐ scan</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-alls{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-alls{% endif %}"
+                class="method-link" data-target="cp-fusion-array-alls">alls</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-anys{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-anys{% endif %}"
+                class="method-link" data-target="cp-fusion-array-anys">anys</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-maxs{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-maxs{% endif %}"
+                class="method-link" data-target="cp-fusion-array-maxs">maxs</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-mins{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-mins{% endif %}"
+                class="method-link" data-target="cp-fusion-array-mins">mins</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-prods{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-prods{% endif %}"
+                class="method-link" data-target="cp-fusion-array-prods">prods</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-sums{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-sums{% endif %}"
+                class="method-link" data-target="cp-fusion-array-sums">sums</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Permutations</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-sort{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-sort{% endif %}"
+                class="method-link" data-target="cp-fusion-array-sort">sort</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-sort-by{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-sort-by{% endif %}"
+                class="method-link" data-target="cp-fusion-array-sort-by">sort_by</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-sort-by-key{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-sort-by-key{% endif %}"
+                class="method-link" data-target="cp-fusion-array-sort-by-key">sort_by_key</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Compactions</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-rle{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-rle{% endif %}"
+                class="method-link" data-target="cp-fusion-array-rle">rle</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Copying</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-replicate-mask{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-replicate-mask{% endif %}"
+                class="method-link" data-target="cp-fusion-array-replicate-mask">replicate</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Split-Reductions</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-chunk-by-reduce{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-chunk-by-reduce{% endif %}"
+                class="method-link" data-target="cp-fusion-array-chunk-by-reduce">chunk_by_reduce</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="method-subcategory">
+        <h4>Comparisons</h4>
+        <ul class="method-list">
+          <li><a
+              href="{% if pagename == 'fusion_array' %}#cp-fusion-array-match{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-match{% endif %}"
+              class="method-link" data-target="cp-fusion-array-match">match</a></li>
+        </ul>
+      </div>
+
+      <div class="method-category">
+        <h3>Properties</h3>
+        <div class="method-subcategory">
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-size{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-size{% endif %}"
+                class="method-link" data-target="cp-fusion-array-size">size</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-rank{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-rank{% endif %}"
+                class="method-link" data-target="cp-fusion-array-rank">rank</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-shape{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-shape{% endif %}"
+                class="method-link" data-target="cp-fusion-array-shape">shape</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="method-category">
+        <h3>Accessors</h3>
+        <div class="method-subcategory">
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-value{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-value{% endif %}"
+                class="method-link" data-target="cp-fusion-array-value">value</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-front{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-front{% endif %}"
+                class="method-link" data-target="cp-fusion-array-front">front</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-back{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-back{% endif %}"
+                class="method-link" data-target="cp-fusion-array-back">back</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fusion-array-to-host{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-to-host{% endif %}"
+                class="method-link" data-target="cp-fusion-array-to-host">to_host</a></li>
+          </ul>
+        </div>
+      </div>
+      
+      <div class="method-category">
+        <h3>Array Creation</h3>
+        <div class="method-subcategory">
+          <ul class="method-list">
+            <li><a
+              href="{% if pagename == 'fusion_array' %}#array-creation-functions{% else %}{{ pathto('fusion_array') }}#array-creation-functions{% endif %}"
+              class="method-link" data-target="array-creation-functions">array</a></li>
+              <li><a
+                href="{% if pagename == 'fusion_array' %}#array-creation-functions{% else %}{{ pathto('fusion_array') }}#array-creation-functions{% endif %}"
+                class="method-link" data-target="array-creation-functions">range</a></li>
+                <li><a
+                  href="{% if pagename == 'fusion_array' %}#array-creation-functions{% else %}{{ pathto('fusion_array') }}#array-creation-functions{% endif %}"
+                  class="method-link" data-target="array-creation-functions">scalar</a></li>
+                  <li><a
+                    href="{% if pagename == 'fusion_array' %}#array-creation-functions{% else %}{{ pathto('fusion_array') }}#array-creation-functions{% endif %}"
+                    class="method-link" data-target="array-creation-functions">matrix</a></li>
+                  </ul>
+                </div>
+              </div>
+              
+                    <div class="method-category">
+                      <h3>I/O</h3>
+                      <div class="method-subcategory">
+                        <ul class="method-list">
+                          <li><a
+                              href="{% if pagename == 'fusion_array' %}#cp-fusion-array-print{% else %}{{ pathto('fusion_array') }}#cp-fusion-array-print{% endif %}"
+                              class="method-link" data-target="cp-fusion-array-print">print</a></li>
+                        </ul>
+                      </div>
+                    </div>
+              
+      <div class="method-category">
+        <h3>Function Objects</h3>
+
+        <div class="method-subcategory">
+          <h4>Accessors</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-fst{% else %}{{ pathto('fusion_array') }}#cp-fst{% endif %}"
+                class="method-link" data-target="cp-fst">fst</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-snd{% else %}{{ pathto('fusion_array') }}#cp-snd{% endif %}"
+                class="method-link" data-target="cp-snd">snd</a></li>
+          </ul>
+        </div>
+
+        <div class="method-subcategory">
+          <h4>Binary Operations</h4>
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-eq{% else %}{{ pathto('fusion_array') }}#cp-eq{% endif %}"
+                class="method-link" data-target="cp-eq">eq</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-gt{% else %}{{ pathto('fusion_array') }}#cp-gt{% endif %}"
+                class="method-link" data-target="cp-gt">gt</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-gte{% else %}{{ pathto('fusion_array') }}#cp-gte{% endif %}"
+                class="method-link" data-target="cp-gte">gte</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-lt{% else %}{{ pathto('fusion_array') }}#cp-lt{% endif %}"
+                class="method-link" data-target="cp-lt">lt</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-lte{% else %}{{ pathto('fusion_array') }}#cp-lte{% endif %}"
+                class="method-link" data-target="cp-lte">lte</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-max{% else %}{{ pathto('fusion_array') }}#cp-max{% endif %}"
+                class="method-link" data-target="cp-max">max</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-min{% else %}{{ pathto('fusion_array') }}#cp-min{% endif %}"
+                class="method-link" data-target="cp-min">min</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-mul{% else %}{{ pathto('fusion_array') }}#cp-mul{% endif %}"
+                class="method-link" data-target="cp-mul">mul</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-add{% else %}{{ pathto('fusion_array') }}#cp-add{% endif %}"
+                class="method-link" data-target="cp-add">add</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="method-category">
+        <h3>Statistical Functions</h3>
+        <div class="method-subcategory">
+          <ul class="method-list">
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-stats-norm-cdf{% else %}{{ pathto('fusion_array') }}#cp-stats-norm-cdf{% endif %}"
+                class="method-link" data-target="cp-stats-norm-cdf">norm_cdf</a></li>
+            <li><a
+                href="{% if pagename == 'fusion_array' %}#cp-stats-mode{% else %}{{ pathto('fusion_array') }}#cp-stats-mode{% endif %}"
+                class="method-link" data-target="cp-stats-mode">mode</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
