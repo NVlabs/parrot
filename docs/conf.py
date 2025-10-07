@@ -26,7 +26,8 @@ html_logo = "_static/logo.png"
 
 # Furo theme options
 html_theme_options = {
-    "sidebar_hide_name": False,  # Set to True if you want to hide the project name next to logo
+    "sidebar_hide_name":
+    False,  # Set to True if you want to hide the project name next to logo
     "light_css_variables": {
         # Visual Studio Light theme colors
         "color-foreground-primary": "#1e1e1e",
@@ -84,7 +85,7 @@ html_theme_options = {
         "color-inline-code-background": "#44475a",
     },
     "navigation_with_keys": True,
-    "source_repository": "https://github.com/yourusername/parrot/",
+    "source_repository": "https://github.com/NVlabs/parrot/",
     "source_branch": "main",
     "source_directory": "docs/",
 }
@@ -151,26 +152,40 @@ html_sidebars = {
 # Exhale configuration
 exhale_args = {
     # Required arguments
-    "containmentFolder": "./api",
-    "rootFileName": "library_root.rst",
-    "doxygenStripFromPath": "..",
-    "rootFileTitle": "Parrot API",
+    "containmentFolder":
+    "./api",
+    "rootFileName":
+    "library_root.rst",
+    "doxygenStripFromPath":
+    "..",
+    "rootFileTitle":
+    "Parrot API",
     # Suggested optional arguments
-    "createTreeView": True,
-    "treeViewIsBootstrap": False,
-    "exhaleExecutesDoxygen": True,
+    "createTreeView":
+    True,
+    "treeViewIsBootstrap":
+    False,
+    "exhaleExecutesDoxygen":
+    True,
     # Generate more detailed class hierarchies in the sidebar
-    "fullApiSubSectionTitle": "Full API",
-    "afterTitleDescription": "Complete API documentation for all classes and functions.",
-    "fullToctreeMaxDepth": 5,
-    "includeTemplateParamOrderList": True,
+    "fullApiSubSectionTitle":
+    "Full API",
+    "afterTitleDescription":
+    "Complete API documentation for all classes and functions.",
+    "fullToctreeMaxDepth":
+    5,
+    "includeTemplateParamOrderList":
+    True,
     "unabridgedOrphanKinds": ["class", "function", "define", "file"],
-    "verboseBuild": True,
+    "verboseBuild":
+    True,
     # Additional options to expose methods in sidebar
-    "contentsDirectives": True,
+    "contentsDirectives":
+    True,
     "kindsWithContentsDirectives": ["class", "namespace"],
     # Doxygen settings
-    "exhaleDoxygenStdin": """
+    "exhaleDoxygenStdin":
+    """
 INPUT                  = ../parrot.hpp
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = YES

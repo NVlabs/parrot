@@ -8,7 +8,7 @@
         <img src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat" /></a>
     <a href="https://en.cppreference.com/w/cpp/compiler_support/11">
         <img src="https://img.shields.io/badge/C++%20-20-ff69b4.svg"/></a>
-    <a href="https://choekstra.gitlab-master-pages.nvidia.com/parrot-cuda" alt="Documentation">
+    <a href="https://nvlabs.github.io/parrot/" alt="Documentation">
         <img src="https://img.shields.io/badge/docs-latest-blue.svg" /></a>
 </p>
 
@@ -90,11 +90,11 @@ Parrot provides significant code reduction compared to other CUDA libraries:
 | ---------- | ------------------ |
 | **Thrust** | **~10x less code** |
 
-See detailed comparisons in our [documentation](https://choekstra.gitlab-master-pages.nvidia.com/parrot-cuda).
+See detailed comparisons in our [documentation](https://nvlabs.github.io/parrot/).
 
 ## 📚 Documentation
 
-- **[Full Documentation](https://choekstra.gitlab-master-pages.nvidia.com/parrot-cuda)** - Complete API reference and examples
+- **[Full Documentation](https://nvlabs.github.io/parrot/)** - Complete API reference and examples
 - **[Examples](docs/examples.rst)** - Standalone Parrot examples
 - **[vs Thrust](docs/parrot_v_thrust.rst)** - Side-by-side comparisons with Thrust
 
@@ -183,4 +183,4 @@ Built on top of [NVIDIA Thrust](https://github.com/NVIDIA/thrust) and [CUDA](htt
 
 ---
 
-**[📖 Read the Full Documentation →](https://choekstra.gitlab-master-pages.nvidia.com/parrot-cuda)**
+**[📖 Read the Full Documentation →](https://nvlabs.github.io/parrot/)**
