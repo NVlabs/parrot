@@ -318,13 +318,6 @@ foreach(example_path ${STARTER_EXAMPLES})
     target_compile_options(${target_name} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
 endforeach()
 
-# Add softmax example
-add_executable(softmax softmax.cu)
-set_target_properties(softmax PROPERTIES 
-    CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
-    CUDA_SEPARABLE_COMPILATION ON)
-target_compile_options(softmax PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
-
 # Documentation
 find_package(Doxygen QUIET)
 if(DOXYGEN_FOUND)
