@@ -17,7 +17,7 @@ jobs:
     - name: Install clang-format
       run: |
         sudo apt-get update
-        sudo apt-get install -y clang-format
+        sudo apt-get install -y clang-format-14
         
     - name: Check C++ code formatting
       run: |
@@ -37,10 +37,10 @@ jobs:
         format_issues=0
         for file in $files; do
           echo "Checking $file..."
-          if ! clang-format --dry-run --Werror "$file" > /dev/null 2>&1; then
+          if ! clang-format-14 --dry-run --Werror "$file" > /dev/null 2>&1; then
             echo "❌ $file is not properly formatted"
             echo "Expected format:"
-            clang-format "$file" | head -20
+            clang-format-14 "$file" | head -20
             echo ""
             echo "Actual format:"
             head -20 "$file"
@@ -57,10 +57,10 @@ jobs:
           echo "❌ Found $format_issues file(s) with formatting issues."
           echo ""
           echo "To fix formatting issues, run:"
-          echo "  clang-format -i <filename>"
+          echo "  clang-format-14 -i <filename>"
           echo ""
           echo "Or to fix all files at once:"
-          echo "  find . -name '*.cpp' -o -name '*.hpp' -o -name '*.c' -o -name '*.h' -o -name '*.cu' -o -name '*.cuh' | grep -v './build/' | grep -v './_deps/' | grep -v './docs/' | grep -v './.venv/' | grep -v './.git/' | xargs clang-format -i"
+          echo "  find . -name '*.cpp' -o -name '*.hpp' -o -name '*.c' -o -name '*.h' -o -name '*.cu' -o -name '*.cuh' | grep -v './build/' | grep -v './_deps/' | grep -v './docs/' | grep -v './.venv/' | grep -v './.git/' | xargs clang-format-14 -i"
           exit 1
         else
           echo ""
