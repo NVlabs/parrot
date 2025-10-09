@@ -1,0 +1,2 @@
+# Override GitHub language detection for CUDA header files
+*.hpp linguist-language=Cuda
