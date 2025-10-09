@@ -6,7 +6,7 @@ This document describes how to build, test, and generate documentation for the p
 
 - CMake (version 3.10 or higher)
 - C++ compiler with C++20 support
-- NVIDIA CUDA Toolkit
+- NVIDIA CUDA Toolkit 13.0 or later
 - NVIDIA GPU with compute capability 7.0 or higher
 - Python 3 with pip (for documentation, optional)
 
@@ -106,6 +106,7 @@ Install required Python packages (optional, for Sphinx):
 ```bash
 pip install sphinx sphinx-rtd-theme breathe
 ```
+
 ## Generate Documentation
 
 1. Generate Doxygen XML documentation:

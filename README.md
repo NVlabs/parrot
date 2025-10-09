@@ -59,7 +59,7 @@ auto den  = num.sum<2>();
 
 - CMake (3.10+)
 - C++ compiler with C++20 support
-- NVIDIA CUDA Toolkit
+- NVIDIA CUDA Toolkit 13.0 or later
 - NVIDIA GPU with compute capability 7.0+
 
 ### Build Steps

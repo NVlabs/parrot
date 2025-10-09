@@ -53,6 +53,19 @@ set(CUDA_ARCH "AUTO" CACHE STRING "CUDA architectures to build for (e.g., '75', 
 # Now enable CUDA language
 enable_language(CUDA)
 
+# Check CUDA version - parrot requires CUDA 13.0 or later for thrust::default_init support
+if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS "13.0")
+    message(FATAL_ERROR 
+        "CUDA ${CMAKE_CUDA_COMPILER_VERSION} detected, but parrot requires CUDA 13.0 or later.\n"
+        "The project uses thrust::default_init which was introduced in CUDA 13.0.\n"
+        "Please upgrade to CUDA 13.0 or later.\n"
+        "Current CUDA compiler: ${CMAKE_CUDA_COMPILER}\n"
+        "Required: CUDA >= 13.0\n"
+        "Found: CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
+endif()
+
+message(STATUS "CUDA ${CMAKE_CUDA_COMPILER_VERSION} detected - meets minimum requirement (13.0+)")
+
 # Function to detect GPU architecture using nvidia-smi
 function(detect_gpu_architecture output_var)
     # Try using nvidia-smi first (faster and more reliable)
