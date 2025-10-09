@@ -95,8 +95,8 @@ See detailed comparisons in our [documentation](https://nvlabs.github.io/parrot/
 ## 📚 Documentation
 
 - **[Full Documentation](https://nvlabs.github.io/parrot/)** - Complete API reference and examples
-- **[Examples](docs/examples.rst)** - Standalone Parrot examples
-- **[vs Thrust](docs/parrot_v_thrust.rst)** - Side-by-side comparisons with Thrust
+- **[Examples](https://nvlabs.github.io/parrot/examples.html)** - Standalone Parrot examples
+- **[vs Thrust](https://nvlabs.github.io/parrot/parrot_v_thrust.html)** - Side-by-side comparisons with Thrust
 
 
 ## 🧪 Examples
