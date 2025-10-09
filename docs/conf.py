@@ -17,7 +17,7 @@
 
 # Configuration file for the Sphinx documentation builder
 # -- Project information -----------------------------------------------------
-project = "Parrot C++"
+project = "Parrot"
 # copyright = "2025, Conor Hoekstra"
 author = "Conor Hoekstra"
 

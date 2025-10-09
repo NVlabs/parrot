@@ -1,6 +1,6 @@
 <div align="center">
   <img src="docs/_static/logo.png" alt="Parrot C++" width="300">
-  <h1><b>Parrot C++</b></h1>
+  <h1><b>Parrot</b></h1>
 </div>
 
 <p align="center">
@@ -12,7 +12,7 @@
         <img src="https://img.shields.io/badge/docs-latest-blue.svg" /></a>
 </p>
 
-**Parrot C++** is a C++ library for fused array operations using CUDA/Thrust. It provides efficient GPU-accelerated operations with lazy evaluation semantics, allowing for chaining of operations without unnecessary intermediate materializations.
+**Parrot** is a C++ library for fused array operations using CUDA/Thrust. It provides efficient GPU-accelerated operations with lazy evaluation semantics, allowing for chaining of operations without unnecessary intermediate materializations.
 
 ## ✨ Features
 
