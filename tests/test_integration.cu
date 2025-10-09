@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
  */
 
 #include <thrust/pair.h>
+#include <cmath>
 #include <cstddef>
 #include <stdexcept>
 #include <utility>
@@ -406,23 +407,38 @@ TEST_CASE("ParrotTest - CompositeStorage_SoftmaxPattern") {
     auto m    = parrot::array({1., 2., 3., 4., 5., 6.}).reshape({2, 3});
     auto cols = m.shape()[1];
 
-    // This pattern caused D->H errors before the fix
-    auto z = m /
-             m.maxr<2>().replicate(cols);  // materialized / lazy(materialized)
-    auto num    = z.exp();                 // lazy
-    auto den    = num.sum<2>();            // materialized
-    auto result = num / den.replicate(cols);  // lazy / lazy(materialized)
+    auto z      = m - m.maxr<2>().replicate(cols);
+    auto num    = z.exp();
+    auto den    = num.sum<2>();
+    auto result = num / den.replicate(cols);
 
-    // Just verify it doesn't crash and produces reasonable output
+    // Verify the corrected softmax computation
     CHECK_GT(result.size(), 0);
     auto host_result = result.to_host();
     CHECK_EQ(host_result.size(), 6);
 
-    // Each row should sum to approximately 1.0 (softmax property)
+    // With subtraction (proper softmax), each row should sum to
+    // approximately 1.0
     double row1_sum = host_result[0] + host_result[1] + host_result[2];
     double row2_sum = host_result[3] + host_result[4] + host_result[5];
     CHECK(row1_sum == doctest::Approx(1.0).epsilon(0.01));
     CHECK(row2_sum == doctest::Approx(1.0).epsilon(0.01));
+
+    // Verify specific softmax values for the corrected computation
+    // z = [[-2, -1, 0], [-2, -1, 0]] after subtraction
+    // exp(z) = [[≈0.1353, ≈0.3679, 1.0], [≈0.1353, ≈0.3679, 1.0]]
+    // softmax = exp(z) / sum(exp(z)) for each row
+    double exp_neg2 = std::exp(-2.0);  // ≈0.1353
+    double exp_neg1 = std::exp(-1.0);  // ≈0.3679
+    double exp_0    = 1.0;
+    double row_sum  = exp_neg2 + exp_neg1 + exp_0;  // ≈1.5032
+
+    CHECK(host_result[0] == doctest::Approx(exp_neg2 / row_sum).epsilon(0.01));
+    CHECK(host_result[1] == doctest::Approx(exp_neg1 / row_sum).epsilon(0.01));
+    CHECK(host_result[2] == doctest::Approx(exp_0 / row_sum).epsilon(0.01));
+    CHECK(host_result[3] == doctest::Approx(exp_neg2 / row_sum).epsilon(0.01));
+    CHECK(host_result[4] == doctest::Approx(exp_neg1 / row_sum).epsilon(0.01));
+    CHECK(host_result[5] == doctest::Approx(exp_0 / row_sum).epsilon(0.01));
 }
 
 TEST_CASE("ParrotTest - CompositeStorage_CyclePattern") {
