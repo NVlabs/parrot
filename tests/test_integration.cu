@@ -402,15 +402,19 @@ TEST_CASE("ParrotTest - CompositeStorage_ReductionDivision") {
     CHECK(check_match(division, expected));
 }
 
+auto softmax(auto matrix) {
+    using namespace parrot::literals;
+    auto cols = matrix.shape()[1];
+    auto z    = matrix - matrix.maxr(2_ic).replicate(cols);
+    auto num  = z.exp();
+    auto den  = num.sum(2_ic);
+    return num / den.replicate(cols);
+}
+
 TEST_CASE("ParrotTest - CompositeStorage_SoftmaxPattern") {
     // Test: softmax-like pattern (from softmax.cu)
-    auto m    = parrot::array({1., 2., 3., 4., 5., 6.}).reshape({2, 3});
-    auto cols = m.shape()[1];
-
-    auto z      = m - m.maxr<2>().replicate(cols);
-    auto num    = z.exp();
-    auto den    = num.sum<2>();
-    auto result = num / den.replicate(cols);
+    auto m      = parrot::array({1., 2., 3., 4., 5., 6.}).reshape({2, 3});
+    auto result = softmax(m);
 
     // Verify the corrected softmax computation
     CHECK_GT(result.size(), 0);

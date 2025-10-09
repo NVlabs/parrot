@@ -61,6 +61,21 @@
 
 namespace parrot {
 
+namespace literals {
+// User-defined literal for integral_constant to avoid template syntax
+// Allows writing 2_ic instead of std::integral_constant<int, 2>{}
+template <char... Digits>
+constexpr auto operator""_ic() {
+    constexpr int value = []() {
+        int result = 0;
+        ((result = result * 10 + (Digits - '0')), ...);
+        return result;
+    }();
+    return std::integral_constant<int, value>{};
+}
+
+}  // namespace literals
+
 // Type trait to extract underlying type from device_reference
 template <typename T>
 struct extract_value_type {
@@ -190,8 +205,8 @@ struct add_functor {
 // Delta functor for adjacent element differences
 struct delta {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a,
-                                        const T &b) const -> decltype(b - a) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const
+      -> decltype(b - a) {
         return b - a;
     }
 };
@@ -301,8 +316,8 @@ struct gte {
  */
 struct add {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a,
-                                        const T &b) const -> decltype(a + b) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const
+      -> decltype(a + b) {
         return a + b;
     }
 };
@@ -312,8 +327,8 @@ struct add {
  */
 struct mul {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a,
-                                        const T &b) const -> decltype(a * b) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const
+      -> decltype(a * b) {
         return a * b;
     }
 };
@@ -323,8 +338,8 @@ struct mul {
  */
 struct div {
     template <typename T1, typename T2>
-    __host__ __device__ auto operator()(const T1 &a,
-                                        const T2 &b) const -> decltype(a / b) {
+    __host__ __device__ auto operator()(const T1 &a, const T2 &b) const
+      -> decltype(a / b) {
         return a / b;
     }
 };
@@ -345,8 +360,8 @@ struct idiv {
  */
 struct minus {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a,
-                                        const T &b) const -> decltype(a - b) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const
+      -> decltype(a - b) {
         return a - b;
     }
 };
@@ -1093,10 +1108,9 @@ class fusion_array {
      * @return A new fusion_array with the operation applied
      */
     template <typename BinaryOp>
-    auto map_adj(BinaryOp op) const
-      -> fusion_array<thrust::transform_iterator<
-        thrust::zip_function<BinaryOp>,
-        thrust::zip_iterator<thrust::tuple<Iterator, Iterator>>>> {
+    auto map_adj(BinaryOp op) const -> fusion_array<thrust::transform_iterator<
+      thrust::zip_function<BinaryOp>,
+      thrust::zip_iterator<thrust::tuple<Iterator, Iterator>>>> {
         auto zip_begin = thrust::make_zip_iterator(
           thrust::make_tuple(_begin, _begin + 1));
         auto transform_begin = thrust::make_transform_iterator(
@@ -1378,10 +1392,14 @@ class fusion_array {
      * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
      * @param init The initial value for the reduction
      * @param op The binary operation to apply for reduction
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A fusion_array containing the reduction result(s)
      */
     template <int Axis = 0, typename T, typename BinaryOp>
-    auto reduce(T init, BinaryOp op) const {
+    auto reduce(T init,
+                BinaryOp op,
+                std::integral_constant<int, Axis> axis = {}) const {
         using value_type = typename std::iterator_traits<Iterator>::value_type;
 
         if constexpr (Axis == 0) {
@@ -1433,10 +1451,12 @@ class fusion_array {
     /**
      * @brief Maximum reduction (eager operation)
      * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A fusion_array containing the maximum value(s)
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto maxr() const {
+    [[nodiscard]] auto maxr(std::integral_constant<int, Axis> axis = {}) const {
         return reduce<Axis>(std::numeric_limits<value_type>::lowest(),
                             thrust::maximum<value_type>());
     }
@@ -1444,10 +1464,12 @@ class fusion_array {
     /**
      * @brief Minimum reduction (eager operation)
      * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A fusion_array containing the minimum value(s)
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto minr() const {
+    [[nodiscard]] auto minr(std::integral_constant<int, Axis> axis = {}) const {
         return reduce<Axis>(std::numeric_limits<value_type>::max(),
                             thrust::minimum<value_type>());
     }
@@ -1455,10 +1477,12 @@ class fusion_array {
     /**
      * @brief Sum reduction (eager operation)
      * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A fusion_array containing the sum of elements
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto sum() const {
+    [[nodiscard]] auto sum(std::integral_constant<int, Axis> axis = {}) const {
         if constexpr (has_mask) {
             // Apply mask first
             auto unmasked = _apply_mask_if_needed();
@@ -1471,22 +1495,26 @@ class fusion_array {
     /**
      * @brief Check if any element is non-zero (eager operation)
      * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A fusion_array containing true if any element is non-zero, false
      * otherwise
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto any() const {
+    [[nodiscard]] auto any(std::integral_constant<int, Axis> axis = {}) const {
         return reduce<Axis>(0, thrust::logical_or<int>());
     }
 
     /**
      * @brief Check if all elements are non-zero (eager operation)
      * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A fusion_array containing true if all elements are non-zero,
      * false otherwise
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto all() const {
+    [[nodiscard]] auto all(std::integral_constant<int, Axis> axis = {}) const {
         return reduce<Axis>(1, thrust::logical_and<int>());
     }
 
@@ -1637,10 +1665,12 @@ class fusion_array {
      * @brief Inclusive scan with logical OR (eager operation)
      * @tparam Axis The axis along which to scan (0=all elements, 1=column-wise,
      * 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A new fusion_array containing running OR of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto anys() const {
+    [[nodiscard]] auto anys(std::integral_constant<int, Axis> axis = {}) const {
         return scan<Axis>(thrust::logical_or<value_type>());
     }
 
@@ -1648,10 +1678,12 @@ class fusion_array {
      * @brief Inclusive scan with logical AND (eager operation)
      * @tparam Axis The axis along which to scan (0=all elements, 1=column-wise,
      * 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A new fusion_array containing running AND of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto alls() const {
+    [[nodiscard]] auto alls(std::integral_constant<int, Axis> axis = {}) const {
         return scan<Axis>(thrust::logical_and<value_type>());
     }
 
@@ -1659,10 +1691,12 @@ class fusion_array {
      * @brief Inclusive scan with minimum (eager operation)
      * @tparam Axis The axis along which to scan (0=all elements, 1=column-wise,
      * 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A new fusion_array containing running minimum of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto mins() const {
+    [[nodiscard]] auto mins(std::integral_constant<int, Axis> axis = {}) const {
         return scan<Axis>(thrust::minimum<value_type>());
     }
 
@@ -1670,10 +1704,12 @@ class fusion_array {
      * @brief Inclusive scan with maximum (eager operation)
      * @tparam Axis The axis along which to scan (0=all elements, 1=column-wise,
      * 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A new fusion_array containing running maximum of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto maxs() const {
+    [[nodiscard]] auto maxs(std::integral_constant<int, Axis> axis = {}) const {
         return scan<Axis>(thrust::maximum<value_type>())._mark_sorted();
     }
 
@@ -1681,10 +1717,12 @@ class fusion_array {
      * @brief Inclusive scan with addition (eager operation)
      * @tparam Axis The axis along which to scan (0=all elements, 1=column-wise,
      * 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A new fusion_array containing running sum of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto sums() const {
+    [[nodiscard]] auto sums(std::integral_constant<int, Axis> axis = {}) const {
         return scan<Axis>(thrust::plus<value_type>());
     }
 
@@ -1692,10 +1730,13 @@ class fusion_array {
      * @brief Inclusive scan with multiplication (eager operation)
      * @tparam Axis The axis along which to scan (0=all elements, 1=column-wise,
      * 2=row-wise)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A new fusion_array containing running product of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto prods() const {
+    [[nodiscard]] auto prods(
+      std::integral_constant<int, Axis> axis = {}) const {
         return scan<Axis>(thrust::multiplies<value_type>());
     }
 
@@ -1707,12 +1748,14 @@ class fusion_array {
      * sums, prods, mins, maxs.
      * @param op The binary operation to apply for the scan (must be
      * associative)
+     * @param axis Optional integral_constant parameter for axis (allows 2_ic
+     * syntax)
      * @return A new fusion_array containing the running results of applying
      * the operation
      * @see sums, prods, mins, maxs, anys, alls for common predefined scans
      */
     template <int Axis = 0, typename BinaryOp>
-    auto scan(BinaryOp op) const {
+    auto scan(BinaryOp op, std::integral_constant<int, Axis> axis = {}) const {
         if constexpr (Axis == 0) {
             int n = size();
             // Create a device vector to store the scan results
@@ -2630,16 +2673,16 @@ class fusion_array {
     }
 
     // clang-format off
-    auto operator/ (auto const &arg) const { return this->div(arg);   }
-    auto operator- (auto const &arg) const { return this->minus(arg); }
-    auto operator+ (auto const &arg) const { return this->add(arg);   }
-    auto operator* (auto const &arg) const { return this->times(arg); }
-    auto operator< (auto const &arg) const { return this->lt(arg);    }
-    auto operator<=(auto const &arg) const { return this->lte(arg);   }
-    auto operator> (auto const &arg) const { return this->gt(arg);    }
-    auto operator>=(auto const &arg) const { return this->gte(arg);   }
-    auto operator==(auto const &arg) const { return this->eq(arg);    }
-    // auto operator%(auto const &arg) const { return this->mod(arg); } // TODO
+     auto operator/ (auto const &arg) const { return this->div(arg);   }
+     auto operator- (auto const &arg) const { return this->minus(arg); }
+     auto operator+ (auto const &arg) const { return this->add(arg);   }
+     auto operator* (auto const &arg) const { return this->times(arg); }
+     auto operator< (auto const &arg) const { return this->lt(arg);    }
+     auto operator<=(auto const &arg) const { return this->lte(arg);   }
+     auto operator> (auto const &arg) const { return this->gt(arg);    }
+     auto operator>=(auto const &arg) const { return this->gte(arg);   }
+     auto operator==(auto const &arg) const { return this->eq(arg);    }
+     // auto operator%(auto const &arg) const { return this->mod(arg); } // TODO
     // clang-format on
 };
 
