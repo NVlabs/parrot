@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@
 
 int main() {
     auto stencil = parrot::array({0, 1, 1, 0, 0, 1, 0, 1});
-    auto
-      indices = parrot::range(8).minus(1).keep(stencil).print();  // [1, 2, 5, 7]
+    auto indices = parrot::range(8)
+                     .minus(1)
+                     .keep(stencil)
+                     .print();  // [1, 2, 5, 7]
 }

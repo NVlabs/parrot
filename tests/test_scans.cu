@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -125,28 +125,28 @@ TEST_CASE("ParrotTest - ScanColTest") {
     // Column-wise sums
     auto scan_col_sums     = matrix.scan<1>(parrot::add{});
     auto expected_col_sums = parrot::array({1,
-                                         2,
-                                         3,
-                                         1 + 4,
-                                         2 + 5,
-                                         3 + 6,
-                                         1 + 4 + 7,
-                                         2 + 5 + 8,
-                                         3 + 6 + 9})
+                                            2,
+                                            3,
+                                            1 + 4,
+                                            2 + 5,
+                                            3 + 6,
+                                            1 + 4 + 7,
+                                            2 + 5 + 8,
+                                            3 + 6 + 9})
                                .reshape({3, 3});
     CHECK(check_match(scan_col_sums, expected_col_sums));
 
     // Column-wise prods
     auto scan_col_prods     = matrix.scan<1>(parrot::mul{});
     auto expected_col_prods = parrot::array({1,
-                                          2,
-                                          3,
-                                          1 * 4,
-                                          2 * 5,
-                                          3 * 6,
-                                          1 * 4 * 7,
-                                          2 * 5 * 8,
-                                          3 * 6 * 9})
+                                             2,
+                                             3,
+                                             1 * 4,
+                                             2 * 5,
+                                             3 * 6,
+                                             1 * 4 * 7,
+                                             2 * 5 * 8,
+                                             3 * 6 * 9})
                                 .reshape({3, 3});
     CHECK(check_match(scan_col_prods, expected_col_prods));
 

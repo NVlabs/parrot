@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,9 @@
 
 int main() {
     auto values  = parrot::array({2, 5, 7, 1, 6, 0, 3, 8});
-    auto clamp   = values.max(1).min(5).print();     // 2 5 5 1 5 1 3 5
-    auto sum     = clamp.sum().print();              // 27
+    auto clamp   = values.max(1).min(5).print();        // 2 5 5 1 5 1 3 5
+    auto sum     = clamp.sum().print();                 // 27
     auto iota    = parrot::range(10).minus(1).print();  // 0 1 2 3 4 5 6 7 8 9
-    auto clamp_i = iota.max(1).min(5).print();       // 1 2 3 4 5 5 5 5 5 5
+    auto clamp_i = iota.max(1).min(5).print();          // 1 2 3 4 5 5 5 5 5 5
     auto negated = clamp_i.neg().print();  // -1 -2 -3 -4 -5 -5 -5 -5 -5 -5
 }
