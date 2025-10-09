@@ -1,0 +1,68 @@
+name: C++ Code Format Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  clang-format-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install clang-format
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-format
+        
+    - name: Check C++ code formatting
+      run: |
+        # Find all C++ source files
+        files=$(find . -name "*.cpp" -o -name "*.hpp" -o -name "*.c" -o -name "*.h" -o -name "*.cu" -o -name "*.cuh" | grep -v "./build/" | grep -v "./_deps/" | grep -v "./docs/" | grep -v "./.venv/" | grep -v "./.git/")
+        
+        if [ -z "$files" ]; then
+          echo "No C++ files found to check"
+          exit 0
+        fi
+        
+        echo "Checking formatting for the following files:"
+        echo "$files"
+        echo ""
+        
+        # Check if files are properly formatted
+        format_issues=0
+        for file in $files; do
+          echo "Checking $file..."
+          if ! clang-format --dry-run --Werror "$file" > /dev/null 2>&1; then
+            echo "❌ $file is not properly formatted"
+            echo "Expected format:"
+            clang-format "$file" | head -20
+            echo ""
+            echo "Actual format:"
+            head -20 "$file"
+            echo ""
+            echo "---"
+            format_issues=$((format_issues + 1))
+          else
+            echo "✅ $file is properly formatted"
+          fi
+        done
+        
+        if [ $format_issues -gt 0 ]; then
+          echo ""
+          echo "❌ Found $format_issues file(s) with formatting issues."
+          echo ""
+          echo "To fix formatting issues, run:"
+          echo "  clang-format -i <filename>"
+          echo ""
+          echo "Or to fix all files at once:"
+          echo "  find . -name '*.cpp' -o -name '*.hpp' -o -name '*.c' -o -name '*.h' -o -name '*.cu' -o -name '*.cuh' | grep -v './build/' | grep -v './_deps/' | grep -v './docs/' | grep -v './.venv/' | grep -v './.git/' | xargs clang-format -i"
+          exit 1
+        else
+          echo ""
+          echo "✅ All files are properly formatted!"
+        fi
