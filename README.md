@@ -42,15 +42,22 @@ int main() {
 ### Advanced Example: Row-wise Softmax
 
 ```cpp
-// Create a matrix
-auto matrix = parrot::range(10000).as<float>().reshape({100, 100});
+#include "parrot.hpp"
 
-// Calculate the row-wise softmax of a matrix
-auto cols = matrix.shape()[1];
-auto z    = matrix - matrix.maxr<2>().replicate(cols);
-auto num  = z.exp();
-auto den  = num.sum<2>();
-(num / den.replicate(cols)).print();
+using namespace parrot::literals;
+
+auto softmax(auto matrix) {
+    auto cols = matrix.shape()[1];
+    auto z    = matrix - matrix.maxr(2_ic).replicate(cols);
+    auto num  = z.exp();
+    auto den  = num.sum(2_ic);
+    return num / den.replicate(cols);
+}
+
+int main() {
+    auto matrix = parrot::range(6).as<float>().reshape({2, 3});
+    softmax(matrix).print();
+}
 ```
 
 ## 🏗️ Building

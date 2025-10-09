@@ -1,10 +1,12 @@
 #include "parrot.hpp"
 
+using namespace parrot::literals;
+
 auto softmax(auto matrix) {
     auto cols = matrix.shape()[1];
-    auto z    = matrix - matrix.template maxr<2>().replicate(cols);
+    auto z    = matrix - matrix.maxr(2_ic).replicate(cols);
     auto num  = z.exp();
-    auto den  = num.template sum<2>();
+    auto den  = num.sum(2_ic);
     return num / den.replicate(cols);
 }
 
