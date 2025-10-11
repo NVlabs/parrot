@@ -1,0 +1,106 @@
+name: Examples Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  examples-tests:
+    runs-on: ubuntu-latest-4-cores-gpu
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup CUDA
+      uses: Jimver/cuda-toolkit@v0.2.14
+      with:
+        cuda: '12.4'
+        method: 'network'
+        
+    - name: Verify CUDA installation
+      run: |
+        nvcc --version
+        nvidia-smi
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential
+        
+    - name: Create build directory
+      run: mkdir -p build
+      
+    - name: Configure with CMake (for dependencies)
+      run: |
+        cd build
+        cmake .. -DCUDA_ARCH=75  # T4 GPU architecture
+        
+    - name: Build project dependencies
+      run: |
+        cd build
+        cmake --build . --target doctest -j$(nproc) || echo "Doctest target not found, continuing..."
+        
+    - name: Run examples script in test mode
+      run: |
+        chmod +x scripts/run-examples.sh
+        ./scripts/run-examples.sh --test
+        
+    - name: Run examples script in normal mode (fallback if no expected outputs)
+      if: failure()  # Only run if test mode fails (likely due to missing expected outputs)
+      run: |
+        echo "Test mode failed, running in normal mode..."
+        ./scripts/run-examples.sh --run
+        
+  # Separate job to capture expected outputs (can be run manually)
+  capture-expected-outputs:
+    runs-on: ubuntu-latest-4-cores-gpu
+    if: github.event_name == 'workflow_dispatch'  # Only run when manually triggered
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup CUDA
+      uses: Jimver/cuda-toolkit@v0.2.14
+      with:
+        cuda: '12.4'
+        method: 'network'
+        
+    - name: Verify CUDA installation
+      run: |
+        nvcc --version
+        nvidia-smi
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential
+        
+    - name: Create build directory
+      run: mkdir -p build
+      
+    - name: Configure with CMake (for dependencies)
+      run: |
+        cd build
+        cmake .. -DCUDA_ARCH=75  # T4 GPU architecture
+        
+    - name: Build project dependencies
+      run: |
+        cd build
+        cmake --build . --target doctest -j$(nproc) || echo "Doctest target not found, continuing..."
+        
+    - name: Capture expected outputs
+      run: |
+        chmod +x scripts/run-examples.sh
+        ./scripts/run-examples.sh --capture
+        
+    - name: Upload expected outputs as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: expected-outputs
+        path: scripts/expected_outputs/
+        retention-days: 30
