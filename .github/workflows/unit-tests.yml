@@ -9,19 +9,13 @@ on:
 
 jobs:
   unit-tests:
-    runs-on: ubuntu-latest-4-cores-gpu
+    runs-on: [self-hosted, linux, gpu, cuda, hpc-sdk]
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Setup CUDA
-      uses: Jimver/cuda-toolkit@v0.2.14
-      with:
-        cuda: '12.4'
-        method: 'network'
-        
-    - name: Verify CUDA installation
+    - name: Verify CUDA installation (HPC SDK)
       run: |
         nvcc --version
         nvidia-smi
@@ -37,7 +31,7 @@ jobs:
     - name: Configure with CMake
       run: |
         cd build
-        cmake .. -DCUDA_ARCH=75  # T4 GPU architecture
+        cmake .. -DCUDA_ARCH=AUTO  # Auto-detect your GPU architecture
         
     - name: Build project
       run: |
