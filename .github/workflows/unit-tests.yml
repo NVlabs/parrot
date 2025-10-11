@@ -9,7 +9,7 @@ on:
 
 jobs:
   unit-tests:
-    runs-on: [self-hosted, linux, gpu, cuda, hpc-sdk]
+    runs-on: [self-hosted, Linux, X64]
     
     steps:
     - name: Checkout code

@@ -9,7 +9,7 @@ on:
 
 jobs:
   examples-tests:
-    runs-on: [self-hosted, linux, gpu, cuda, hpc-sdk]
+    runs-on: [self-hosted, Linux, X64]
     
     steps:
     - name: Checkout code
@@ -51,7 +51,7 @@ jobs:
         
   # Separate job to capture expected outputs (can be run manually)
   capture-expected-outputs:
-    runs-on: [self-hosted, linux, gpu, cuda, hpc-sdk]
+    runs-on: [self-hosted, Linux, X64]
     if: github.event_name == 'workflow_dispatch'  # Only run when manually triggered
     
     steps:
