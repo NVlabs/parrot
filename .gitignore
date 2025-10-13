@@ -12,4 +12,7 @@ TODO*
 builds/
 compile_commands.json
 .cache/
-.vscode/
+.vscode/# Local runner scripts (keep local only)
+setup-github-runner.sh
+start-runner.sh
+stop-runner.sh
