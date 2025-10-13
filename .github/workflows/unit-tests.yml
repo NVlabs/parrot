@@ -1,0 +1,82 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  unit-tests:
+    runs-on: [self-hosted, Linux, X64]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Verify CUDA installation (HPC SDK)
+      run: |
+        nvcc --version
+        nvidia-smi
+        
+    - name: Verify dependencies
+      run: |
+        cmake --version
+        which cmake
+        which make
+        
+    - name: Create build directory
+      run: mkdir -p build
+      
+    - name: Configure with CMake
+      env:
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+      run: |
+        cd build
+        cmake .. -DCUDA_ARCH=AUTO  # Auto-detect your GPU architecture
+        
+    - name: Build project
+      env:
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+      run: |
+        cd build
+        cmake --build . -j$(nproc)
+        
+    - name: Run all unit tests
+      run: |
+        cd build
+        ctest --output-on-failure --verbose
+        
+    - name: Run main test executable
+      run: |
+        cd build
+        ./parrot_tests
+        
+    - name: Run individual test categories
+      run: |
+        cd build
+        echo "Running basic operations tests..."
+        ./test_basic
+        echo "Running sorting tests..."
+        ./test_sorting
+        echo "Running math operations tests..."
+        ./test_math
+        echo "Running reductions tests..."
+        ./test_reductions
+        echo "Running scans tests..."
+        ./test_scans
+        echo "Running array operations tests..."
+        ./test_array_ops
+        echo "Running advanced operations tests..."
+        ./test_advanced
+        echo "Running multidimensional tests..."
+        ./test_multidim
+        echo "Running integration tests..."
+        ./test_integration
+        echo "Running top10 tests..."
+        ./test_top10
+        echo "Running fun tests..."
+        ./test_fun
