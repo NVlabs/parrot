@@ -30,11 +30,17 @@ jobs:
       run: mkdir -p build
       
     - name: Configure with CMake (for dependencies)
+      env:
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
       run: |
         cd build
         cmake .. -DCUDA_ARCH=AUTO  # Auto-detect your GPU architecture
         
     - name: Build project dependencies
+      env:
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
       run: |
         cd build
         cmake --build . --target doctest -j$(nproc) || echo "Doctest target not found, continuing..."
@@ -49,48 +55,3 @@ jobs:
       run: |
         echo "Test mode failed, running in normal mode..."
         ./scripts/run-examples.sh --run
-        
-  # Separate job to capture expected outputs (can be run manually)
-  capture-expected-outputs:
-    runs-on: [self-hosted, Linux, X64]
-    if: github.event_name == 'workflow_dispatch'  # Only run when manually triggered
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Verify CUDA installation (HPC SDK)
-      run: |
-        nvcc --version
-        nvidia-smi
-        
-    - name: Verify dependencies
-      run: |
-        cmake --version
-        which cmake
-        which make
-        
-    - name: Create build directory
-      run: mkdir -p build
-      
-    - name: Configure with CMake (for dependencies)
-      run: |
-        cd build
-        cmake .. -DCUDA_ARCH=AUTO  # Auto-detect your GPU architecture
-        
-    - name: Build project dependencies
-      run: |
-        cd build
-        cmake --build . --target doctest -j$(nproc) || echo "Doctest target not found, continuing..."
-        
-    - name: Capture expected outputs
-      run: |
-        chmod +x scripts/run-examples.sh
-        ./scripts/run-examples.sh --capture
-        
-    - name: Upload expected outputs as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: expected-outputs
-        path: scripts/expected_outputs/
-        retention-days: 30
