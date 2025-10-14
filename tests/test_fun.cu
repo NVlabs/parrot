@@ -211,6 +211,7 @@ TEST_CASE("Zero Friend") {
         auto arr = parrot::array({7, -3, 0, 2, -8});
         CHECK_EQ(zero_friend(arr).value(), 0);
     }
+
     SUBCASE("Example 4") {
         auto arr = parrot::array({-2, -5, -1, -8});
         CHECK_EQ(zero_friend(arr).value(), 1);
@@ -218,5 +219,43 @@ TEST_CASE("Zero Friend") {
     SUBCASE("Example 5") {
         auto arr = parrot::array({-2, 2, -4, 4, -1, 1});
         CHECK_EQ(zero_friend(arr).value(), 1);
+    }
+}
+
+// Team Champion - PWC 343.2
+
+auto team_champion(auto arr) {
+    auto sums = arr.sum(2_ic);
+    return sums.keep(sums.maxr() == sums).first();
+}
+
+TEST_CASE("Team Champion") {
+    SUBCASE("Example 1") {
+        auto arr = parrot::array({0, 1, 1, 0, 0, 1, 0, 0, 0}).reshape({3, 3});
+        CHECK_EQ(team_champion(arr).value(), 0);
+    }
+    SUBCASE("Example 2") {
+        auto arr = parrot::array({0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 1, 1, 0, 0, 1, 1, 1, 0})
+                     .reshape({4, 5});
+        CHECK_EQ(team_champion(arr).value(), 3);
+    }
+
+    SUBCASE("Example 3") {
+        auto arr = parrot::array({0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0})
+                     .reshape({4, 4});
+        CHECK_EQ(team_champion(arr).value(), 0);
+    }
+
+    SUBCASE("Example 4") {
+        auto arr = parrot::array({0, 1, 1, 0, 0, 0, 0, 1, 0}).reshape({3, 3});
+        CHECK_EQ(team_champion(arr).value(), 0);
+    }
+
+    SUBCASE("Example 5") {
+        auto arr = parrot::array({0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1,
+                                  0, 1, 1, 1, 0, 0, 0, 0, 1, 0})
+                     .reshape({5, 5});
+        CHECK_EQ(team_champion(arr).value(), 2);
     }
 }
