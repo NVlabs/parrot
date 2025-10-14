@@ -1,15 +1,18 @@
 name: Examples Tests
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
+  workflow_run:
+    workflows: ["Unit Tests"]
+    types:
+      - completed
     branches: [ main, develop ]
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
   examples-tests:
     runs-on: [self-hosted, Linux, X64]
+    # Only run if the unit tests workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     
     steps:
     - name: Checkout code
