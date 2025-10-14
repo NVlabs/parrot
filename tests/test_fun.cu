@@ -224,6 +224,8 @@ TEST_CASE("Zero Friend") {
 
 // Team Champion - PWC 343.2
 
+using namespace parrot::literals;
+
 auto team_champion(auto arr) {
     auto sums = arr.sum(2_ic);
     return sums.keep(sums.maxr() == sums).first();
