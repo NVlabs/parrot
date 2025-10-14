@@ -244,7 +244,8 @@ TEST_CASE("Team Champion") {
     }
 
     SUBCASE("Example 3") {
-        auto arr = parrot::array({0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0})
+        auto arr = parrot::array(
+                     {0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0})
                      .reshape({4, 4});
         CHECK_EQ(team_champion(arr), 0);
     }
