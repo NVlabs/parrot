@@ -669,13 +669,15 @@ class fusion_array {
     [[no_unique_address]] std::conditional_t<
       std::is_same_v<MaskIterator, no_mask_t>,
       std::monostate,
-      std::pair<MaskIterator, MaskIterator>> _mask_range;
+      std::pair<MaskIterator, MaskIterator>>
+      _mask_range;
 
     // Optional storage to keep mask source alive (only for masked arrays)
     [[no_unique_address]] std::conditional_t<
       std::is_same_v<MaskIterator, no_mask_t>,
       std::monostate,
-      std::shared_ptr<void>> _mask_storage;
+      std::shared_ptr<void>>
+      _mask_storage;
 
     // Helper to check if this is a masked array
     static constexpr bool has_mask = !std::is_same_v<MaskIterator, no_mask_t>;
@@ -749,8 +751,8 @@ class fusion_array {
                  Iterator end,
                  MI mask_begin,
                  MI mask_end,
-                 std::shared_ptr<void> mask_storage = nullptr)
-        requires(!std::is_same_v<MI, no_mask_t>)
+                 std::shared_ptr<void> mask_storage =
+                   nullptr) requires(!std::is_same_v<MI, no_mask_t>)
       : _begin(begin),
         _end(end),
         _shape{static_cast<int>(cuda::std::distance(begin, end))},
@@ -794,8 +796,8 @@ class fusion_array {
                  std::shared_ptr<void> storage,
                  MI mask_begin,
                  MI mask_end,
-                 std::shared_ptr<void> mask_storage = nullptr)
-        requires(!std::is_same_v<MI, no_mask_t>)
+                 std::shared_ptr<void> mask_storage =
+                   nullptr) requires(!std::is_same_v<MI, no_mask_t>)
       : _begin(begin),
         _end(end),
         _owned_storage(std::move(storage)),
@@ -827,8 +829,8 @@ class fusion_array {
                  const std::vector<int> &shape,
                  MI mask_begin,
                  MI mask_end,
-                 std::shared_ptr<void> mask_storage = nullptr)
-        requires(!std::is_same_v<MI, no_mask_t>)
+                 std::shared_ptr<void> mask_storage =
+                   nullptr) requires(!std::is_same_v<MI, no_mask_t>)
       : _begin(begin),
         _end(end),
         _owned_storage(std::move(storage)),
