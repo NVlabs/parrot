@@ -228,7 +228,10 @@ using namespace parrot::literals;
 
 auto team_champion(auto arr) {
     auto sums = arr.sum(2_ic);
-    return sums.keep(sums.maxr() == sums).front();
+    return parrot::range(arr.shape()[0])
+      .minus(1)
+      .keep(sums.maxr() == sums)
+      .front();
 }
 
 TEST_CASE("Team Champion") {
