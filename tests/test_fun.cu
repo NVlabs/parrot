@@ -233,32 +233,41 @@ auto team_champion(auto arr) {
 
 TEST_CASE("Team Champion") {
     SUBCASE("Example 1") {
-        auto arr = parrot::array({0, 1, 1, 0, 0, 1, 0, 0, 0}).reshape({3, 3});
+        auto arr = parrot::matrix({{0, 1, 1},  //
+                                   {0, 0, 1},
+                                   {0, 0, 0}});
         CHECK_EQ(team_champion(arr), 0);
     }
     SUBCASE("Example 2") {
-        auto arr = parrot::array({0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                                  0, 0, 1, 1, 0, 0, 1, 1, 1, 0})
-                     .reshape({4, 5});
+        auto arr = parrot::matrix({{0, 1, 0, 0},  //
+                                   {0, 0, 0, 0},
+                                   {1, 1, 0, 0},
+                                   {1, 1, 1, 0}});
+        ;
         CHECK_EQ(team_champion(arr), 3);
     }
 
     SUBCASE("Example 3") {
-        auto arr = parrot::array(
-                     {0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0})
-                     .reshape({4, 4});
+        auto arr = parrot::matrix({{0, 1, 0, 1},  //
+                                   {0, 0, 1, 1},
+                                   {1, 0, 0, 0},
+                                   {0, 0, 1, 0}});
         CHECK_EQ(team_champion(arr), 0);
     }
 
     SUBCASE("Example 4") {
-        auto arr = parrot::array({0, 1, 1, 0, 0, 0, 0, 1, 0}).reshape({3, 3});
+        auto arr = parrot::matrix({{0, 1, 1},  //
+                                   {0, 0, 0},
+                                   {0, 1, 0}});
         CHECK_EQ(team_champion(arr), 0);
     }
 
     SUBCASE("Example 5") {
-        auto arr = parrot::array({0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1,
-                                  0, 1, 1, 1, 0, 0, 0, 0, 1, 0})
-                     .reshape({5, 5});
+        auto arr = parrot::matrix({{0, 0, 0, 0, 0},
+                                   {1, 0, 0, 0, 0},
+                                   {1, 1, 0, 1, 1},
+                                   {1, 1, 0, 0, 0},
+                                   {1, 1, 0, 1, 0}});
         CHECK_EQ(team_champion(arr), 2);
     }
 }
