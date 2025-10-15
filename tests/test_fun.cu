@@ -193,3 +193,84 @@ TEST_CASE("Max Distance") {
         CHECK_EQ(max_distance(a, b).value(), 5);
     }
 }
+
+// Zero Friend - PWC 343.1
+
+auto zero_friend(auto arr) { return (arr - 0).abs().minr(); }
+
+TEST_CASE("Zero Friend") {
+    SUBCASE("Example 1") {
+        auto arr = parrot::array({4, 2, -1, 3, -2});
+        CHECK_EQ(zero_friend(arr).value(), 1);
+    }
+    SUBCASE("Example 2") {
+        auto arr = parrot::array({-5, 5, -3, 3, -1, 1});
+        CHECK_EQ(zero_friend(arr).value(), 1);
+    }
+    SUBCASE("Example 3") {
+        auto arr = parrot::array({7, -3, 0, 2, -8});
+        CHECK_EQ(zero_friend(arr).value(), 0);
+    }
+
+    SUBCASE("Example 4") {
+        auto arr = parrot::array({-2, -5, -1, -8});
+        CHECK_EQ(zero_friend(arr).value(), 1);
+    }
+    SUBCASE("Example 5") {
+        auto arr = parrot::array({-2, 2, -4, 4, -1, 1});
+        CHECK_EQ(zero_friend(arr).value(), 1);
+    }
+}
+
+// Team Champion - PWC 343.2
+
+using namespace parrot::literals;
+
+auto team_champion(auto arr) {
+    auto sums = arr.sum(2_ic);
+    return parrot::range(arr.shape()[0])
+      .minus(1)
+      .keep(sums.maxr() == sums)
+      .front();
+}
+
+TEST_CASE("Team Champion") {
+    SUBCASE("Example 1") {
+        auto arr = parrot::matrix({{0, 1, 1},  //
+                                   {0, 0, 1},
+                                   {0, 0, 0}});
+        CHECK_EQ(team_champion(arr), 0);
+    }
+    SUBCASE("Example 2") {
+        auto arr = parrot::matrix({{0, 1, 0, 0},  //
+                                   {0, 0, 0, 0},
+                                   {1, 1, 0, 0},
+                                   {1, 1, 1, 0}});
+        ;
+        CHECK_EQ(team_champion(arr), 3);
+    }
+
+    SUBCASE("Example 3") {
+        auto arr = parrot::matrix({{0, 1, 0, 1},  //
+                                   {0, 0, 1, 1},
+                                   {1, 0, 0, 0},
+                                   {0, 0, 1, 0}});
+        CHECK_EQ(team_champion(arr), 0);
+    }
+
+    SUBCASE("Example 4") {
+        auto arr = parrot::matrix({{0, 1, 1},  //
+                                   {0, 0, 0},
+                                   {0, 1, 0}});
+        CHECK_EQ(team_champion(arr), 0);
+    }
+
+    SUBCASE("Example 5") {
+        auto arr = parrot::matrix({{0, 0, 0, 0, 0},
+                                   {1, 0, 0, 0, 0},
+                                   {1, 1, 0, 1, 1},
+                                   {1, 1, 0, 0, 0},
+                                   {1, 1, 0, 1, 0}});
+        CHECK_EQ(team_champion(arr), 2);
+    }
+}
