@@ -376,6 +376,83 @@ TEST_CASE("ParrotTest - MatrixInvalidTest") {
                     std::invalid_argument);  // Shape cannot be empty
 }
 
+// Test nested initializer list matrix function
+TEST_CASE("ParrotTest - NestedMatrixTest") {
+    // Create a 2x3 matrix with integers
+    auto mat = parrot::matrix({{1, 2, 3}, {4, 5, 6}});
+
+    // Check size and shape
+    CHECK_EQ(mat.size(), 6);
+    auto shape = mat.shape();
+    REQUIRE_EQ(shape.size(), 2);
+    CHECK_EQ(shape[0], 2);  // rows
+    CHECK_EQ(shape[1], 3);  // cols
+
+    // Check content (row-major order)
+    auto expected = parrot::array({1, 2, 3, 4, 5, 6});
+    CHECK(check_match(mat, expected));
+
+    // Check print output
+    std::stringstream ss{};
+    mat.print(ss);
+    std::string const expected_print = "1 2 3\n4 5 6\n";
+    CHECK_EQ(ss.str(), expected_print);
+}
+
+// Test nested initializer list matrix with doubles
+TEST_CASE("ParrotTest - NestedMatrixDoubleTest") {
+    // Create a 3x2 matrix with doubles
+    auto mat = parrot::matrix({{1.5, 2.5}, {3.5, 4.5}, {5.5, 6.5}});
+
+    // Check size and shape
+    CHECK_EQ(mat.size(), 6);
+    auto shape = mat.shape();
+    REQUIRE_EQ(shape.size(), 2);
+    CHECK_EQ(shape[0], 3);  // rows
+    CHECK_EQ(shape[1], 2);  // cols
+
+    // Check content
+    auto expected = parrot::array({1.5, 2.5, 3.5, 4.5, 5.5, 6.5});
+    CHECK(check_match(mat, expected));
+}
+
+// Test nested initializer list matrix with single element
+TEST_CASE("ParrotTest - NestedMatrixSingleElementTest") {
+    // Create a 1x1 matrix
+    auto mat = parrot::matrix({{42}});
+
+    // Check size and shape
+    CHECK_EQ(mat.size(), 1);
+    auto shape = mat.shape();
+    REQUIRE_EQ(shape.size(), 2);
+    CHECK_EQ(shape[0], 1);  // rows
+    CHECK_EQ(shape[1], 1);  // cols
+
+    // Check content
+    auto expected = parrot::array({42});
+    CHECK(check_match(mat, expected));
+}
+
+// Test nested initializer list matrix with invalid inputs
+TEST_CASE("ParrotTest - NestedMatrixInvalidTest") {
+    // Empty nested list - need explicit type since compiler can't deduce from
+    // empty list
+    std::initializer_list<std::initializer_list<int>> empty_nested{};
+    CHECK_THROWS_AS(parrot::matrix(empty_nested), std::invalid_argument);
+
+    // Empty inner list - need explicit type since compiler can't deduce from
+    // empty inner list
+    std::initializer_list<std::initializer_list<int>> empty_inner{{}};
+    CHECK_THROWS_AS(parrot::matrix(empty_inner), std::invalid_argument);
+
+    // Mismatched row lengths
+    CHECK_THROWS_AS(parrot::matrix({{1, 2, 3}, {4, 5}}), std::invalid_argument);
+
+    // Another mismatched case
+    CHECK_THROWS_AS(parrot::matrix({{1, 2}, {3, 4, 5}, {6, 7}}),
+                    std::invalid_argument);
+}
+
 // Test transpose function for a 2x3 matrix
 TEST_CASE("ParrotTest - Transpose2x3Test") {
     auto arr = parrot::array({1, 2, 3, 4, 5, 6})

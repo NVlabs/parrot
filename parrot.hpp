@@ -669,15 +669,13 @@ class fusion_array {
     [[no_unique_address]] std::conditional_t<
       std::is_same_v<MaskIterator, no_mask_t>,
       std::monostate,
-      std::pair<MaskIterator, MaskIterator>>
-      _mask_range;
+      std::pair<MaskIterator, MaskIterator>> _mask_range;
 
     // Optional storage to keep mask source alive (only for masked arrays)
     [[no_unique_address]] std::conditional_t<
       std::is_same_v<MaskIterator, no_mask_t>,
       std::monostate,
-      std::shared_ptr<void>>
-      _mask_storage;
+      std::shared_ptr<void>> _mask_storage;
 
     // Helper to check if this is a masked array
     static constexpr bool has_mask = !std::is_same_v<MaskIterator, no_mask_t>;
@@ -751,8 +749,8 @@ class fusion_array {
                  Iterator end,
                  MI mask_begin,
                  MI mask_end,
-                 std::shared_ptr<void> mask_storage =
-                   nullptr) requires(!std::is_same_v<MI, no_mask_t>)
+                 std::shared_ptr<void> mask_storage = nullptr)
+        requires(!std::is_same_v<MI, no_mask_t>)
       : _begin(begin),
         _end(end),
         _shape{static_cast<int>(cuda::std::distance(begin, end))},
@@ -796,8 +794,8 @@ class fusion_array {
                  std::shared_ptr<void> storage,
                  MI mask_begin,
                  MI mask_end,
-                 std::shared_ptr<void> mask_storage =
-                   nullptr) requires(!std::is_same_v<MI, no_mask_t>)
+                 std::shared_ptr<void> mask_storage = nullptr)
+        requires(!std::is_same_v<MI, no_mask_t>)
       : _begin(begin),
         _end(end),
         _owned_storage(std::move(storage)),
@@ -829,8 +827,8 @@ class fusion_array {
                  const std::vector<int> &shape,
                  MI mask_begin,
                  MI mask_end,
-                 std::shared_ptr<void> mask_storage =
-                   nullptr) requires(!std::is_same_v<MI, no_mask_t>)
+                 std::shared_ptr<void> mask_storage = nullptr)
+        requires(!std::is_same_v<MI, no_mask_t>)
       : _begin(begin),
         _end(end),
         _owned_storage(std::move(storage)),
@@ -2766,6 +2764,49 @@ auto matrix(T value, std::initializer_list<int> shape) {
     for (auto dim : shape) { total_size *= dim; }
 
     return scalar(value).repeat(total_size).reshape(shape);
+}
+
+/**
+ * @brief Create a 2D matrix from a nested initializer list
+ * @tparam T The element type (automatically deduced from the nested list)
+ * @param nested_list A nested initializer list where each inner list represents
+ * a row
+ * @return A fusion_array with shape {rows, cols} containing the matrix data
+ * @throws std::invalid_argument if nested_list is empty or inner lists have
+ * different lengths
+ */
+template <typename T>
+auto matrix(std::initializer_list<std::initializer_list<T>> nested_list) {
+    if (nested_list.size() == 0) {
+        throw std::invalid_argument("matrix: nested_list cannot be empty");
+    }
+
+    // Get dimensions
+    int rows = static_cast<int>(nested_list.size());
+    int cols = static_cast<int>(nested_list.begin()->size());
+
+    if (cols == 0) {
+        throw std::invalid_argument("matrix: inner lists cannot be empty");
+    }
+
+    // Validate that all rows have the same length
+    for (const auto &row : nested_list) {
+        if (static_cast<int>(row.size()) != cols) {
+            throw std::invalid_argument(
+              "matrix: all inner lists must have the same length");
+        }
+    }
+
+    // Flatten the nested data into a single vector (row-major order)
+    std::vector<T> flattened_data;
+    flattened_data.reserve(rows * cols);
+
+    for (const auto &row : nested_list) {
+        for (const auto &element : row) { flattened_data.push_back(element); }
+    }
+
+    // Create the array and reshape it to the matrix dimensions
+    return array(flattened_data).reshape({rows, cols});
 }
 
 // Define the stats namespace implementation
