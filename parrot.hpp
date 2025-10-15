@@ -2768,6 +2768,49 @@ auto matrix(T value, std::initializer_list<int> shape) {
     return scalar(value).repeat(total_size).reshape(shape);
 }
 
+/**
+ * @brief Create a 2D matrix from a nested initializer list
+ * @tparam T The element type (automatically deduced from the nested list)
+ * @param nested_list A nested initializer list where each inner list represents
+ * a row
+ * @return A fusion_array with shape {rows, cols} containing the matrix data
+ * @throws std::invalid_argument if nested_list is empty or inner lists have
+ * different lengths
+ */
+template <typename T>
+auto matrix(std::initializer_list<std::initializer_list<T>> nested_list) {
+    if (nested_list.size() == 0) {
+        throw std::invalid_argument("matrix: nested_list cannot be empty");
+    }
+
+    // Get dimensions
+    int rows = static_cast<int>(nested_list.size());
+    int cols = static_cast<int>(nested_list.begin()->size());
+
+    if (cols == 0) {
+        throw std::invalid_argument("matrix: inner lists cannot be empty");
+    }
+
+    // Validate that all rows have the same length
+    for (const auto &row : nested_list) {
+        if (static_cast<int>(row.size()) != cols) {
+            throw std::invalid_argument(
+              "matrix: all inner lists must have the same length");
+        }
+    }
+
+    // Flatten the nested data into a single vector (row-major order)
+    std::vector<T> flattened_data;
+    flattened_data.reserve(rows * cols);
+
+    for (const auto &row : nested_list) {
+        for (const auto &element : row) { flattened_data.push_back(element); }
+    }
+
+    // Create the array and reshape it to the matrix dimensions
+    return array(flattened_data).reshape({rows, cols});
+}
+
 // Define the stats namespace implementation
 namespace stats {
 // Normal CDF functor
