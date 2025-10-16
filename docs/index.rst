@@ -27,7 +27,7 @@ Quick Start
        auto matrix = parrot::range(10000).as<float>().reshape({100, 100});
 
        // Calculate the row-wise softmax of a matrix
-       auto cols = matrix.shape()[1];
+       auto cols = matrix.ncols();
        auto z    = matrix - matrix.maxr<2>().replicate(cols);
        auto num  = z.exp();
        auto den  = num.sum<2>();

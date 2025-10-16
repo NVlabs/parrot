@@ -47,7 +47,7 @@ int main() {
 using namespace parrot::literals;
 
 auto softmax(auto matrix) {
-    auto cols = matrix.shape()[1];
+    auto cols = matrix.ncols();
     auto z    = matrix - matrix.maxr(2_ic).replicate(cols);
     auto num  = z.exp();
     auto den  = num.sum(2_ic);

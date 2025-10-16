@@ -101,8 +101,8 @@ TEST_CASE("ParrotTest - ReshapeTest") {
     // Check that the shape is correct
     auto shape = reshaped.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 2);
-    CHECK_EQ(shape[1], 3);
+    CHECK_EQ(reshaped.nrows(), 2);
+    CHECK_EQ(reshaped.ncols(), 3);
 
     // Verify the total size remains the same
     CHECK_EQ(reshaped.size(), 6);
@@ -127,8 +127,8 @@ TEST_CASE("ParrotTest - ReshapeTruncateTest") {
     // Check that the shape is correct
     auto shape = reshaped.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 2);
-    CHECK_EQ(shape[1], 2);
+    CHECK_EQ(reshaped.nrows(), 2);
+    CHECK_EQ(reshaped.ncols(), 2);
 
     // Verify the total size is updated
     CHECK_EQ(reshaped.size(), 4);
@@ -199,8 +199,8 @@ TEST_CASE("ParrotTest - CycleEqualSizeTest") {
     // Check that the shape is correct
     auto shape = cycled.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 2);
-    CHECK_EQ(shape[1], 3);
+    CHECK_EQ(cycled.nrows(), 2);
+    CHECK_EQ(cycled.ncols(), 3);
 
     // Verify the total size remains the same
     CHECK_EQ(cycled.size(), 6);
@@ -230,8 +230,8 @@ TEST_CASE("ParrotTest - CycleSmallerSizeTest") {
     // Check that the shape is correct
     auto shape = cycled.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 2);
-    CHECK_EQ(shape[1], 2);
+    CHECK_EQ(cycled.nrows(), 2);
+    CHECK_EQ(cycled.ncols(), 2);
 
     // Verify the total size is updated
     CHECK_EQ(cycled.size(), 4);
@@ -351,8 +351,8 @@ TEST_CASE("ParrotTest - MatrixTest") {
     // Check that the shape is correct (2D)
     auto shape = mat.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 3);
-    CHECK_EQ(shape[1], 4);
+    CHECK_EQ(mat.nrows(), 3);
+    CHECK_EQ(mat.ncols(), 4);
 
     // Check content - all elements should be 7
     auto host_vals = mat.to_host();
@@ -385,8 +385,8 @@ TEST_CASE("ParrotTest - NestedMatrixTest") {
     CHECK_EQ(mat.size(), 6);
     auto shape = mat.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 2);  // rows
-    CHECK_EQ(shape[1], 3);  // cols
+    CHECK_EQ(mat.nrows(), 2);  // rows
+    CHECK_EQ(mat.ncols(), 3);  // cols
 
     // Check content (row-major order)
     auto expected = parrot::array({1, 2, 3, 4, 5, 6});
@@ -408,8 +408,8 @@ TEST_CASE("ParrotTest - NestedMatrixDoubleTest") {
     CHECK_EQ(mat.size(), 6);
     auto shape = mat.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 3);  // rows
-    CHECK_EQ(shape[1], 2);  // cols
+    CHECK_EQ(mat.nrows(), 3);  // rows
+    CHECK_EQ(mat.ncols(), 2);  // cols
 
     // Check content
     auto expected = parrot::array({1.5, 2.5, 3.5, 4.5, 5.5, 6.5});
@@ -464,8 +464,8 @@ TEST_CASE("ParrotTest - Transpose2x3Test") {
     // Check shape
     auto shape = transposed.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 3);
-    CHECK_EQ(shape[1], 2);
+    CHECK_EQ(transposed.nrows(), 3);
+    CHECK_EQ(transposed.ncols(), 2);
     CHECK_EQ(transposed.size(), 6);
 
     // Check content
@@ -526,8 +526,8 @@ TEST_CASE("ParrotTest - TransposeSingleColumnTest") {
     // Check shape
     auto shape = transposed.shape();
     REQUIRE_EQ(shape.size(), 2);
-    CHECK_EQ(shape[0], 1);
-    CHECK_EQ(shape[1], 4);
+    CHECK_EQ(transposed.nrows(), 1);
+    CHECK_EQ(transposed.ncols(), 4);
     CHECK_EQ(transposed.size(), 4);
 
     // Check content

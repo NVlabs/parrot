@@ -320,8 +320,8 @@ TEST_CASE("ParrotTest - OuterBasicTest") {
     // [2*4, 2*5]  = [8, 10]
     // [3*4, 3*5]  = [12, 15]
     CHECK_EQ(result.size(), 4);
-    CHECK_EQ(result.shape()[0], 2);
-    CHECK_EQ(result.shape()[1], 2);
+    CHECK_EQ(result.nrows(), 2);
+    CHECK_EQ(result.ncols(), 2);
 
     auto result_host = result.to_host();
     CHECK_EQ(result_host[0], 8);   // 2*4
