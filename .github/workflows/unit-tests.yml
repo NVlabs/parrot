@@ -10,6 +10,8 @@ on:
 jobs:
   unit-tests:
     runs-on: [self-hosted, Linux, X64]
+    # Only run on the main NVLabs/parrot repository, not on forks
+    if: github.repository == 'NVLabs/parrot'
     
     steps:
     - name: Checkout code
@@ -84,6 +86,8 @@ jobs:
   examples-tests:
     runs-on: [self-hosted, Linux, X64]
     needs: unit-tests  # Only run after unit-tests succeeds
+    # Only run on the main NVLabs/parrot repository, not on forks
+    if: github.repository == 'NVLabs/parrot'
     
     steps:
     - name: Checkout code

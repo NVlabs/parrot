@@ -9,6 +9,8 @@ on:
 jobs:
   clang-format-check:
     runs-on: ubuntu-latest
+    # Only run on the main NVLabs/parrot repository, not on forks
+    if: github.repository == 'NVLabs/parrot'
     
     steps:
     - name: Checkout code
