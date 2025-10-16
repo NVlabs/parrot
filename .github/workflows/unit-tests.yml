@@ -1,4 +1,4 @@
-name: CI Tests
+name: Unit Tests
 
 on:
   push:
@@ -83,53 +83,3 @@ jobs:
         echo "Running fun tests..."
         ./test_fun
 
-  examples-tests:
-    runs-on: [self-hosted, Linux, X64]
-    needs: unit-tests  # Only run after unit-tests succeeds
-    # Only run on the main NVLabs/parrot repository, not on forks
-    if: github.repository == 'NVLabs/parrot'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Verify CUDA installation (HPC SDK)
-      run: |
-        nvcc --version
-        nvidia-smi
-        
-    - name: Verify dependencies
-      run: |
-        cmake --version
-        which cmake
-        which make
-        
-    - name: Create build directory
-      run: mkdir -p build
-      
-    - name: Configure with CMake (for dependencies)
-      env:
-        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
-        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
-      run: |
-        cd build
-        cmake .. -DCUDA_ARCH=AUTO  # Auto-detect your GPU architecture
-        
-    - name: Build project dependencies
-      env:
-        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
-        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
-      run: |
-        cd build
-        cmake --build . --target doctest -j$(nproc) || echo "Doctest target not found, continuing..."
-        
-    - name: Run examples script in test mode
-      run: |
-        chmod +x scripts/run-examples.sh
-        ./scripts/run-examples.sh --test
-        
-    - name: Run examples script in normal mode (fallback if no expected outputs)
-      if: failure()  # Only run if test mode fails (likely due to missing expected outputs)
-      run: |
-        echo "Test mode failed, running in normal mode..."
-        ./scripts/run-examples.sh --run
