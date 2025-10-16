@@ -3,8 +3,28 @@ name: Unit Tests
 on:
   push:
     branches: [ main, develop ]
+    paths:
+      - '**.cu'
+      - '**.hpp'
+      - '**.cuh'
+      - '**.h'
+      - '**.cpp'
+      - '**.c'
+      - 'CMakeLists.txt'
+      - 'tests/**'
+      - '.github/workflows/unit-tests.yml'
   pull_request:
     branches: [ main, develop ]
+    paths:
+      - '**.cu'
+      - '**.hpp'
+      - '**.cuh'
+      - '**.h'
+      - '**.cpp'
+      - '**.c'
+      - 'CMakeLists.txt'
+      - 'tests/**'
+      - '.github/workflows/unit-tests.yml'
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
