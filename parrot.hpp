@@ -892,6 +892,32 @@ class fusion_array {
      */
     [[nodiscard]] auto rank() const -> int { return _shape.size(); }
 
+    /**
+     * @brief Get the number of rows in a 2D array
+     * @return The number of rows (first dimension)
+     * @throws std::runtime_error if the array rank is not 2
+     */
+    [[nodiscard]] auto nrows() const -> int {
+        if (rank() != 2) {
+            throw std::runtime_error(
+              "nrows() can only be called on rank-2 arrays");
+        }
+        return _shape[0];
+    }
+
+    /**
+     * @brief Get the number of columns in a 2D array
+     * @return The number of columns (second dimension)
+     * @throws std::runtime_error if the array rank is not 2
+     */
+    [[nodiscard]] auto ncols() const -> int {
+        if (rank() != 2) {
+            throw std::runtime_error(
+              "ncols() can only be called on rank-2 arrays");
+        }
+        return _shape[1];
+    }
+
     // Map operation with another fusion_array
     template <typename OtherIterator,
               typename OtherMaskIterator,
