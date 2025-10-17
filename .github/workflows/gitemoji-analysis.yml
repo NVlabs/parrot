@@ -6,14 +6,11 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  gitemoji-suggestion:
+  gitemoji-analysis:
     runs-on: ubuntu-latest
     # Only run on the main NVLabs/parrot repository, not on forks
     if: github.repository == 'NVLabs/parrot'
     
-    permissions:
-      pull-requests: write
-      
     steps:
     - name: Checkout PR branch
       uses: actions/checkout@v4
@@ -211,6 +208,9 @@ jobs:
         }
         
         try {
+          // Fetch the base branch for comparison
+          execSync('git fetch origin main', { stdio: 'inherit' });
+          
           // Get all commits in the PR
           const prCommits = execSync('git log --pretty=format:"%H|%s" origin/main..HEAD', { encoding: 'utf8' })
             .trim().split('\n').filter(line => line);
@@ -253,106 +253,43 @@ jobs:
             console.log('---');
           }
           
-          // Write suggestions to file for the next step
-          fs.writeFileSync('/tmp/gitemoji-suggestions.json', JSON.stringify(suggestions, null, 2));
+          // Generate workflow summary
+          let summary = '# 🎨 Gitemoji Analysis Results\n\n';
           
           if (suggestions.length === 0) {
             console.log('🎉 All commits already have gitemojis!');
+            summary += '🎉 **Excellent!** All commits in this PR already have appropriate gitemojis!\n\n';
+            summary += 'Great job following the [gitmoji specification](https://gitmoji.dev/)! 🚀\n';
           } else {
             console.log(`📋 Found ${suggestions.length} commits that could use gitemojis`);
+            summary += `Found **${suggestions.length} commits** that could benefit from gitemojis:\n\n`;
+            
+            for (const suggestion of suggestions) {
+              summary += `### Commit \`${suggestion.sha}\`\n`;
+              summary += `- **Original:** \`${suggestion.original}\`\n`;
+              summary += `- **Suggested:** \`${suggestion.suggested}\`\n`;
+              summary += `- **Files:** ${suggestion.files.join(', ')}\n\n`;
+            }
+            
+            summary += '## 💡 How to Apply Suggestions\n\n';
+            summary += '```bash\n';
+            summary += 'git rebase -i HEAD~' + suggestions.length + '\n';
+            summary += '# Change "pick" to "reword" for commits you want to update\n';
+            summary += '# Update commit messages with suggested gitemojis\n';
+            summary += '```\n\n';
+            summary += '📚 Learn more about gitemojis at [gitmoji.dev](https://gitmoji.dev/)\n';
           }
+          
+          // Write summary to GitHub Actions summary
+          fs.writeFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
           
         } catch (error) {
           console.error('❌ Error:', error.message);
-          // Don't fail the workflow, just log the error
-          fs.writeFileSync('/tmp/gitemoji-suggestions.json', JSON.stringify([], null, 2));
+          // Write error to summary
+          const errorSummary = '# 🎨 Gitemoji Analysis\n\n❌ **Error:** Could not analyze commits.\n\nCheck the workflow logs for details.\n';
+          fs.writeFileSync(process.env.GITHUB_STEP_SUMMARY, errorSummary);
         }
         EOF
         
         # Run the gitemoji analysis
         node analyze-gitemoji.js
-        
-    - name: Comment on PR with gitemoji suggestions
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-          
-          // Read suggestions from the analysis
-          let suggestions = [];
-          try {
-            suggestions = JSON.parse(fs.readFileSync('/tmp/gitemoji-suggestions.json', 'utf8'));
-          } catch (e) {
-            console.log('No suggestions file found');
-            return;
-          }
-          
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-          });
-          
-          // Check if we already commented about gitemoji
-          const existingComment = comments.find(comment => 
-            comment.user.login === 'github-actions[bot]' && 
-            comment.body.includes('🎨 **Gitemoji Analysis**')
-          );
-          
-          if (existingComment) {
-            // Update existing comment
-            if (suggestions.length === 0) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: '🎨 **Gitemoji Analysis**: 🎉 All commits in this PR already have appropriate gitemojis! Great job following the [gitmoji specification](https://gitmoji.dev/).'
-              });
-            } else {
-              let body = '🎨 **Gitemoji Analysis**: Found commits that could benefit from gitemojis based on the [official specification](https://gitmoji.dev/):\n\n';
-              
-              for (const suggestion of suggestions) {
-                body += `**Commit \`${suggestion.sha}\`:**\n`;
-                body += `- Original: \`${suggestion.original}\`\n`;
-                body += `- Suggested: \`${suggestion.suggested}\`\n`;
-                body += `- Files: ${suggestion.files.join(', ')}\n\n`;
-              }
-              
-              body += '💡 **Tip**: You can manually add these gitemojis to make your commit history more expressive!';
-              
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: body
-              });
-            }
-          } else {
-            // Create new comment
-            if (suggestions.length === 0) {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: '🎨 **Gitemoji Analysis**: 🎉 All commits in this PR already have appropriate gitemojis! Great job following the [gitmoji specification](https://gitmoji.dev/).'
-              });
-            } else {
-              let body = '🎨 **Gitemoji Analysis**: Found commits that could benefit from gitemojis based on the [official specification](https://gitmoji.dev/):\n\n';
-              
-              for (const suggestion of suggestions) {
-                body += `**Commit \`${suggestion.sha}\`:**\n`;
-                body += `- Original: \`${suggestion.original}\`\n`;
-                body += `- Suggested: \`${suggestion.suggested}\`\n`;
-                body += `- Files: ${suggestion.files.join(', ')}\n\n`;
-              }
-              
-              body += '💡 **Tip**: You can manually add these gitemojis to make your commit history more expressive!';
-              
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-              });
-            }
-          }
