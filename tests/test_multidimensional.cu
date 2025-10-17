@@ -608,3 +608,176 @@ TEST_CASE("ParrotTest - ScanColTest") {
                                .reshape({3, 3});
     CHECK(check_match(scan_col_maxs, expected_col_maxs));
 }
+
+// ========================================================================
+// Shape Preservation Tests - Binary operations between different dimensions
+// ========================================================================
+// These tests would have FAILED before the shape preservation bug fix
+// They verify that binary operations preserve the shape of higher-dimensional
+// arrays
+
+TEST_CASE("ParrotTest - ShapePreservation1D2D") {
+    auto arr1d  = parrot::array({1, 2, 3, 4, 5, 6});
+    auto arr2d  = parrot::array({10, 20, 30, 40, 50, 60}).reshape({2, 3});
+    auto result = arr1d + arr2d;
+
+    // Verify the result has 2D shape
+    CHECK_EQ(result.rank(), 2);
+    auto shape = result.shape();
+    REQUIRE_EQ(shape.size(), 2);
+    CHECK_EQ(shape[0], 2);
+    CHECK_EQ(shape[1], 3);
+    CHECK_EQ(result.size(), 6);
+
+    // Verify the computation is correct
+    auto expected = parrot::array({11, 22, 33, 44, 55, 66}).reshape({2, 3});
+    check_match_eq(result, expected);
+}
+
+TEST_CASE("ParrotTest - ShapePreservation2D1D") {
+    auto arr2d  = parrot::array({1, 2, 3, 4}).reshape({2, 2});
+    auto arr1d  = parrot::array({10, 20, 30, 40});
+    auto result = arr2d * arr1d;
+
+    // Verify the result has 2D shape
+    CHECK_EQ(result.rank(), 2);
+    auto shape = result.shape();
+    REQUIRE_EQ(shape.size(), 2);
+    CHECK_EQ(shape[0], 2);
+    CHECK_EQ(shape[1], 2);
+    CHECK_EQ(result.size(), 4);
+
+    // Verify the computation is correct
+    auto expected = parrot::array({10, 40, 90, 160}).reshape({2, 2});
+    check_match_eq(result, expected);
+}
+
+TEST_CASE("ParrotTest - ShapePreservation1D3D") {
+    auto arr1d = parrot::array({1, 1, 1, 1, 1, 1, 1, 1});
+    auto arr3d = parrot::array({10, 20, 30, 40, 50, 60, 70, 80})
+                   .reshape({2, 2, 2});
+    auto result = arr1d.add(arr3d);
+
+    // Verify the result has 3D shape
+    CHECK_EQ(result.rank(), 3);
+    auto shape = result.shape();
+    REQUIRE_EQ(shape.size(), 3);
+    CHECK_EQ(shape[0], 2);
+    CHECK_EQ(shape[1], 2);
+    CHECK_EQ(shape[2], 2);
+    CHECK_EQ(result.size(), 8);
+
+    // Verify the computation is correct
+    auto expected = parrot::array({11, 21, 31, 41, 51, 61, 71, 81})
+                      .reshape({2, 2, 2});
+    check_match_eq(result, expected);
+}
+
+TEST_CASE("ParrotTest - ShapePreservation2D3D") {
+    auto arr2d  = parrot::array({1, 2, 3, 4, 5, 6}).reshape({2, 3});
+    auto arr3d  = parrot::array({10, 20, 30, 40, 50, 60}).reshape({2, 1, 3});
+    auto result = arr2d.minus(arr3d);
+
+    // Verify the result has 3D shape
+    CHECK_EQ(result.rank(), 3);
+    auto shape = result.shape();
+    REQUIRE_EQ(shape.size(), 3);
+    CHECK_EQ(shape[0], 2);
+    CHECK_EQ(shape[1], 1);
+    CHECK_EQ(shape[2], 3);
+    CHECK_EQ(result.size(), 6);
+
+    // Verify the computation is correct
+    auto expected = parrot::array({-9, -18, -27, -36, -45, -54})
+                      .reshape({2, 1, 3});
+    check_match_eq(result, expected);
+}
+
+TEST_CASE("ParrotTest - ShapePreservationChainedOps") {
+    auto arr1d = parrot::array({2, 2, 2, 2, 2, 2});                  // [6]
+    auto arr2d = parrot::array({1, 1, 1, 1, 1, 1}).reshape({2, 3});  // [2, 3]
+    auto arr3d = parrot::array({3, 3, 3, 3, 3, 3})
+                   .reshape({1, 2, 3});  // [1, 2, 3]
+    auto result = (arr1d + arr2d) * arr3d;
+
+    CHECK_EQ(result.rank(), 3);
+    auto shape = result.shape();
+    REQUIRE_EQ(shape.size(), 3);
+    CHECK_EQ(shape[0], 1);
+    CHECK_EQ(shape[1], 2);
+    CHECK_EQ(shape[2], 3);
+    CHECK_EQ(result.size(), 6);
+
+    // Verify the computation: (2+1)*3 = 9 for all elements
+    auto expected = parrot::array({9, 9, 9, 9, 9, 9}).reshape({1, 2, 3});
+    check_match_eq(result, expected);
+}
+
+TEST_CASE("ParrotTest - ShapePreservationDifferentOps") {
+    auto arr1d = parrot::array({8, 12, 16, 20});
+    auto arr2d = parrot::array({2, 3, 4, 5}).reshape({2, 2});
+
+    SUBCASE("Division preserves 2D shape") {
+        auto result = arr1d.div(arr2d);
+        CHECK_EQ(result.rank(), 2);
+        auto shape = result.shape();
+        CHECK_EQ(shape[0], 2);
+        CHECK_EQ(shape[1], 2);
+
+        auto expected = parrot::array({4, 4, 4, 4}).reshape({2, 2});
+        check_match_eq(result, expected);
+    }
+
+    SUBCASE("Min/Max operations preserve 2D shape") {
+        auto result_min = arr1d.min(arr2d);
+        CHECK_EQ(result_min.rank(), 2);
+        auto shape_min = result_min.shape();
+        CHECK_EQ(shape_min[0], 2);
+        CHECK_EQ(shape_min[1], 2);
+
+        auto result_max = arr1d.max(arr2d);
+        CHECK_EQ(result_max.rank(), 2);
+        auto shape_max = result_max.shape();
+        CHECK_EQ(shape_max[0], 2);
+        CHECK_EQ(shape_max[1], 2);
+    }
+
+    SUBCASE("Comparison operations preserve 2D shape") {
+        auto result_lt = arr1d.lt(arr2d);
+        CHECK_EQ(result_lt.rank(), 2);
+        auto shape_lt = result_lt.shape();
+        CHECK_EQ(shape_lt[0], 2);
+        CHECK_EQ(shape_lt[1], 2);
+
+        auto result_eq = arr1d.eq(arr2d);
+        CHECK_EQ(result_eq.rank(), 2);
+        auto shape_eq = result_eq.shape();
+        CHECK_EQ(shape_eq[0], 2);
+        CHECK_EQ(shape_eq[1], 2);
+    }
+}
+
+TEST_CASE("ParrotTest - ShapePreservationScalarLike") {
+    auto arr1d_single = parrot::array({5});                      // [1]
+    auto arr2d_single = parrot::array({10}).reshape({1, 1});     // [1, 1]
+    auto arr3d_single = parrot::array({15}).reshape({1, 1, 1});  // [1, 1, 1]
+
+    SUBCASE("1D + 2D single element preserves 2D") {
+        auto result = arr1d_single.add(arr2d_single);
+        CHECK_EQ(result.rank(), 2);
+        auto shape = result.shape();
+        CHECK_EQ(shape[0], 1);
+        CHECK_EQ(shape[1], 1);
+        CHECK_EQ(result.size(), 1);
+    }
+
+    SUBCASE("2D + 3D single element preserves 3D") {
+        auto result = arr2d_single.times(arr3d_single);
+        CHECK_EQ(result.rank(), 3);
+        auto shape = result.shape();
+        CHECK_EQ(shape[0], 1);
+        CHECK_EQ(shape[1], 1);
+        CHECK_EQ(shape[2], 1);
+        CHECK_EQ(result.size(), 1);
+    }
+}
