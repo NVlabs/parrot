@@ -215,44 +215,145 @@ jobs:
           execSync('git config user.name "github-actions[bot]"');
           execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
           
-          // Get the most recent commit (HEAD)
-          const commitMessage = execSync('git log -1 --pretty=%B', { encoding: 'utf8' }).trim();
-          const commitSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+          // Get commits from the push event
+          const pushEvent = process.env.GITHUB_EVENT_PATH ? 
+            JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')) : {};
           
-          console.log(`🔍 Analyzing most recent commit ${commitSha.substring(0, 7)}: ${commitMessage.split('\n')[0]}`);
+          // Get the range of commits from the push event
+          const beforeSha = pushEvent.before;
+          const afterSha = pushEvent.after || 'HEAD';
           
-          // Skip if already has gitemoji
-          if (hasGitemoji(commitMessage)) {
-            console.log('✅ Commit already has gitemoji, nothing to do');
+          console.log(`🔍 Analyzing commits from ${beforeSha?.substring(0, 7)} to ${afterSha.substring(0, 7)}`);
+          
+          // Get all commits in the push
+          let commitRange;
+          if (beforeSha && beforeSha !== '0000000000000000000000000000000000000000') {
+            commitRange = `${beforeSha}..${afterSha}`;
+          } else {
+            // First push to branch, just get the latest commit
+            commitRange = 'HEAD~1..HEAD';
+          }
+          
+          const commits = execSync(`git rev-list --reverse ${commitRange}`, { encoding: 'utf8' })
+            .trim().split('\n').filter(sha => sha);
+          
+          console.log(`📋 Found ${commits.length} commits to process`);
+          
+          let updatedCount = 0;
+          const commitsToUpdate = [];
+          
+          // First pass: identify commits that need gitemojis
+          for (const sha of commits) {
+            try {
+              const commitMessage = execSync(`git log -1 --pretty=%B ${sha}`, { encoding: 'utf8' }).trim();
+              
+              console.log(`\n🔍 Checking commit ${sha.substring(0, 7)}: ${commitMessage.split('\n')[0]}`);
+              
+              // Skip if already has gitemoji
+              if (hasGitemoji(commitMessage)) {
+                console.log('✅ Already has gitemoji, skipping');
+                continue;
+              }
+              
+              // Get changed files in this commit
+              let changedFiles = [];
+              try {
+                changedFiles = execSync(`git diff-tree --no-commit-id --name-only -r ${sha}`, { encoding: 'utf8' })
+                  .trim().split('\n').filter(f => f);
+              } catch (e) {
+                console.log('Could not get changed files, proceeding without file analysis');
+              }
+              
+              // Detect appropriate gitemoji
+              const emoji = detectCommitType(commitMessage, changedFiles);
+              const newMessage = emoji + ' ' + commitMessage;
+              
+              console.log(`📝 Original: ${commitMessage.split('\n')[0]}`);
+              console.log(`✨ New: ${newMessage.split('\n')[0]}`);
+              console.log(`📁 Files: ${changedFiles.join(', ')}`);
+              
+              commitsToUpdate.push({
+                sha: sha,
+                originalMessage: commitMessage,
+                newMessage: newMessage,
+                files: changedFiles
+              });
+              
+            } catch (error) {
+              console.log(`⚠️ Error processing commit ${sha.substring(0, 7)}: ${error.message}`);
+            }
+          }
+          
+          if (commitsToUpdate.length === 0) {
+            console.log('\n🎉 All commits already have gitemojis!');
             return;
           }
           
-          // Get changed files in the commit
-          let changedFiles = [];
+          console.log(`\n🔄 Updating ${commitsToUpdate.length} commits with gitemojis...`);
+          
+          // Use git filter-branch to rewrite commit messages
+          const tempBranch = `gitemoji-temp-${Date.now()}`;
+          
           try {
-            changedFiles = execSync('git diff-tree --no-commit-id --name-only -r HEAD', { encoding: 'utf8' })
-              .trim().split('\n').filter(f => f);
-          } catch (e) {
-            console.log('Could not get changed files, proceeding without file analysis');
+            // Create a temporary branch
+            execSync(`git checkout -b ${tempBranch}`);
+            
+            // Create a script for the message filter
+            let filterScript = '#!/bin/bash\ncase "$GIT_COMMIT" in\n';
+            
+            for (const commit of commitsToUpdate) {
+              const escapedMessage = commit.newMessage.replace(/'/g, "'\"'\"'").replace(/\n/g, '\\n');
+              filterScript += `  ${commit.sha}) echo '${escapedMessage}' ;;\n`;
+            }
+            
+            filterScript += '  *) cat ;;\nesac\n';
+            
+            fs.writeFileSync('/tmp/gitemoji-filter.sh', filterScript);
+            execSync('chmod +x /tmp/gitemoji-filter.sh');
+            
+            // Apply the filter to rewrite commit messages
+            const startCommit = commits[0];
+            execSync(`git filter-branch -f --msg-filter '/tmp/gitemoji-filter.sh' ${startCommit}~1..HEAD`, { stdio: 'inherit' });
+            
+            // Switch back to original branch and merge the changes
+            execSync(`git checkout ${process.env.GITHUB_REF_NAME.replace('refs/heads/', '')}`);
+            execSync(`git reset --hard ${tempBranch}`);
+            
+            // Clean up temporary branch
+            execSync(`git branch -D ${tempBranch}`);
+            
+            updatedCount = commitsToUpdate.length;
+            console.log(`✅ Successfully updated ${updatedCount} commit(s) with gitemojis!`);
+            
+          } catch (filterError) {
+            console.log('⚠️ Filter-branch failed, trying alternative approach...');
+            
+            // Fallback: try to update commits one by one using rebase
+            try {
+              // Clean up if we created a temp branch
+              try { execSync(`git checkout ${process.env.GITHUB_REF_NAME.replace('refs/heads/', '')}`); } catch {}
+              try { execSync(`git branch -D ${tempBranch}`); } catch {}
+              
+              // For now, just update the most recent commit that needs updating
+              if (commitsToUpdate.length > 0) {
+                const lastCommit = commitsToUpdate[commitsToUpdate.length - 1];
+                if (lastCommit.sha === afterSha || lastCommit.sha === commits[commits.length - 1]) {
+                  fs.writeFileSync('/tmp/new_commit_message.txt', lastCommit.newMessage);
+                  execSync('git commit --amend -F /tmp/new_commit_message.txt');
+                  updatedCount = 1;
+                  console.log('✅ Updated most recent commit as fallback');
+                }
+              }
+            } catch (fallbackError) {
+              console.log('⚠️ Fallback also failed:', fallbackError.message);
+            }
           }
           
-          // Detect appropriate gitemoji
-          const emoji = detectCommitType(commitMessage, changedFiles);
-          const newMessage = emoji + ' ' + commitMessage;
-          
-          console.log(`📝 Original: ${commitMessage.split('\n')[0]}`);
-          console.log(`✨ New: ${newMessage.split('\n')[0]}`);
-          console.log(`📁 Files: ${changedFiles.join(', ')}`);
-          
-          // Amend the most recent commit with the new message
-          fs.writeFileSync('/tmp/new_commit_message.txt', newMessage);
-          execSync('git commit --amend -F /tmp/new_commit_message.txt');
-          
-          console.log('✅ Successfully updated commit message with gitemoji!');
-          
-          // Force push the updated commit
-          execSync('git push --force-with-lease origin ' + process.env.GITHUB_REF_NAME);
-          console.log('✅ Pushed updated commit');
+          if (updatedCount > 0) {
+            // Force push the updated commits
+            execSync(`git push --force-with-lease origin ${process.env.GITHUB_REF_NAME.replace('refs/heads/', '')}`);
+            console.log('✅ Pushed updated commits');
+          }
           
         } catch (error) {
           console.error('❌ Error:', error.message);
