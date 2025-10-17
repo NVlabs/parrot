@@ -1,0 +1,208 @@
+name: Gitemoji Injection
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  gitemoji-injection:
+    runs-on: ubuntu-latest
+    # Only run on the main NVLabs/parrot repository, not on forks
+    if: github.repository == 'NVLabs/parrot' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for commit analysis
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: |
+        npm init -y
+        npm install gitmojis
+        
+    - name: Check and inject gitemoji
+      run: |
+        # Create the gitemoji injection script
+        cat > inject-gitemoji.js << 'EOF'
+        const fs = require('fs');
+        const { execSync } = require('child_process');
+        
+        // Gitemoji mappings based on conventional commit types and file patterns
+        const gitemojis = {
+          // Conventional commit types
+          'feat': '✨',      // New feature
+          'fix': '🐛',       // Bug fix
+          'docs': '📝',      // Documentation
+          'style': '💄',     // Formatting, missing semi colons, etc
+          'refactor': '♻️',  // Code refactoring
+          'perf': '⚡️',     // Performance improvements
+          'test': '✅',      // Adding tests
+          'chore': '🔧',     // Maintenance
+          'ci': '👷',        // CI/CD changes
+          'build': '📦️',    // Build system changes
+          'revert': '⏪️',   // Revert changes
+          
+          // File-based patterns
+          'cmake': '📦️',    // CMake files
+          'docker': '🐳',   // Docker files
+          'github': '👷',   // GitHub workflows
+          'readme': '📝',   // README files
+          'license': '📄',  // License files
+          'gitignore': '🙈', // .gitignore
+          
+          // CUDA/GPU specific
+          'cuda': '🚀',     // CUDA files
+          'gpu': '🚀',      // GPU related
+          'kernel': '⚡️',  // Kernel optimizations
+          
+          // Default fallback
+          'update': '⬆️',   // General updates
+          'add': '➕',      // Adding files
+          'remove': '➖',   // Removing files
+          'initial': '🎉', // Initial commit
+        };
+        
+        function hasGitemoji(message) {
+          // Check if message already contains an emoji
+          const emojiRegex = /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u;
+          return emojiRegex.test(message);
+        }
+        
+        function detectCommitType(message, files) {
+          const lowerMessage = message.toLowerCase();
+          
+          // Check conventional commit format first
+          const conventionalMatch = message.match(/^(\w+)(\(.+\))?:/);
+          if (conventionalMatch) {
+            const type = conventionalMatch[1].toLowerCase();
+            if (gitemojis[type]) {
+              return gitemojis[type];
+            }
+          }
+          
+          // Check for specific keywords in message
+          for (const [keyword, emoji] of Object.entries(gitemojis)) {
+            if (lowerMessage.includes(keyword)) {
+              return emoji;
+            }
+          }
+          
+          // Analyze changed files
+          if (files) {
+            if (files.some(f => f.includes('.cu') || f.includes('.cuh'))) {
+              return gitemojis['cuda'];
+            }
+            if (files.some(f => f.includes('CMakeLists.txt') || f.includes('.cmake'))) {
+              return gitemojis['cmake'];
+            }
+            if (files.some(f => f.includes('.github'))) {
+              return gitemojis['github'];
+            }
+            if (files.some(f => f.toLowerCase().includes('readme'))) {
+              return gitemojis['readme'];
+            }
+            if (files.some(f => f.includes('test'))) {
+              return gitemojis['test'];
+            }
+            if (files.some(f => f.includes('doc'))) {
+              return gitemojis['docs'];
+            }
+          }
+          
+          // Default based on action words
+          if (lowerMessage.includes('add') || lowerMessage.includes('new')) {
+            return gitemojis['add'];
+          }
+          if (lowerMessage.includes('remove') || lowerMessage.includes('delete')) {
+            return gitemojis['remove'];
+          }
+          if (lowerMessage.includes('update') || lowerMessage.includes('modify')) {
+            return gitemojis['update'];
+          }
+          if (lowerMessage.includes('initial') || lowerMessage.includes('first')) {
+            return gitemojis['initial'];
+          }
+          
+          // Default fallback
+          return gitemojis['update'];
+        }
+        
+        try {
+          // Get the latest commit message
+          const commitMessage = execSync('git log -1 --pretty=%B', { encoding: 'utf8' }).trim();
+          
+          // Skip if already has gitemoji
+          if (hasGitemoji(commitMessage)) {
+            console.log('✅ Commit already has gitemoji:', commitMessage.split('\n')[0]);
+            process.exit(0);
+          }
+          
+          // Get changed files in the commit
+          let changedFiles = [];
+          try {
+            changedFiles = execSync('git diff-tree --no-commit-id --name-only -r HEAD', { encoding: 'utf8' })
+              .trim().split('\n').filter(f => f);
+          } catch (e) {
+            console.log('Could not get changed files, proceeding without file analysis');
+          }
+          
+          // Detect appropriate gitemoji
+          const emoji = detectCommitType(commitMessage, changedFiles);
+          const newMessage = emoji + ' ' + commitMessage;
+          
+          console.log('📝 Original message:', commitMessage.split('\n')[0]);
+          console.log('✨ New message:', newMessage.split('\n')[0]);
+          console.log('📁 Changed files:', changedFiles.join(', '));
+          
+          // Configure git user for the action
+          execSync('git config user.name "github-actions[bot]"');
+          execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
+          
+          // Amend the commit with the new message
+          fs.writeFileSync('/tmp/new_commit_message.txt', newMessage);
+          execSync('git commit --amend -F /tmp/new_commit_message.txt');
+          
+          console.log('✅ Successfully injected gitemoji!');
+          
+        } catch (error) {
+          console.error('❌ Error:', error.message);
+          process.exit(1);
+        }
+        EOF
+        
+        # Run the gitemoji injection
+        node inject-gitemoji.js
+        
+    - name: Push amended commit
+      if: success()
+      run: |
+        # Check if there are any changes to push
+        if git diff HEAD~1 --quiet; then
+          echo "No changes to push"
+        else
+          echo "Pushing amended commit with gitemoji"
+          git push --force-with-lease origin ${{ github.ref_name }}
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Comment on PR (if applicable)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '🎨 **Gitemoji Injection**: This PR has been automatically checked for gitemojis. Commits without gitemojis will be updated when merged to main.'
+          })
