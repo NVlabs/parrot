@@ -1,24 +1,24 @@
-name: Gitemoji Analysis
+name: Gitemoji Injection
 
 on:
-  pull_request:
+  push:
     branches: [ main, develop ]
-    types: [opened, synchronize, reopened]
 
 jobs:
-  gitemoji-suggestion:
+  gitemoji-injection:
     runs-on: ubuntu-latest
     # Only run on the main NVLabs/parrot repository, not on forks
     if: github.repository == 'NVLabs/parrot'
     
     permissions:
-      pull-requests: write
+      contents: write
       
     steps:
-    - name: Checkout PR branch
+    - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Fetch full history for commit analysis
+        token: ${{ secrets.GITHUB_TOKEN }}
         
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -30,10 +30,10 @@ jobs:
         npm init -y
         npm install gitmojis
         
-    - name: Analyze commits for gitemoji suggestions
+    - name: Inject gitemojis into recent commits
       run: |
-        # Create the gitemoji analysis script
-        cat > analyze-gitemoji.js << 'EOF'
+        # Create the gitemoji injection script
+        cat > inject-gitemoji.js << 'EOF'
         const fs = require('fs');
         const { execSync } = require('child_process');
         
@@ -211,148 +211,55 @@ jobs:
         }
         
         try {
-          // Get all commits in the PR
-          const prCommits = execSync('git log --pretty=format:"%H|%s" origin/main..HEAD', { encoding: 'utf8' })
-            .trim().split('\n').filter(line => line);
+          // Configure git user for the action
+          execSync('git config user.name "github-actions[bot]"');
+          execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
           
-          const suggestions = [];
+          // Get the most recent commit (HEAD)
+          const commitMessage = execSync('git log -1 --pretty=%B', { encoding: 'utf8' }).trim();
+          const commitSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
           
-          for (const commitLine of prCommits) {
-            const [sha, message] = commitLine.split('|');
-            
-            // Skip if already has gitemoji
-            if (hasGitemoji(message)) {
-              console.log('✅ Commit already has gitemoji:', message);
-              continue;
-            }
-            
-            // Get changed files in this commit
-            let changedFiles = [];
-            try {
-              changedFiles = execSync(`git diff-tree --no-commit-id --name-only -r ${sha}`, { encoding: 'utf8' })
-                .trim().split('\n').filter(f => f);
-            } catch (e) {
-              console.log('Could not get changed files for', sha);
-            }
-            
-            // Detect appropriate gitemoji
-            const emoji = detectCommitType(message, changedFiles);
-            const newMessage = emoji + ' ' + message;
-            
-            suggestions.push({
-              sha: sha.substring(0, 7),
-              original: message,
-              suggested: newMessage,
-              emoji: emoji,
-              files: changedFiles
-            });
-            
-            console.log(`📝 ${sha.substring(0, 7)}: ${message}`);
-            console.log(`✨ Suggested: ${newMessage}`);
-            console.log(`📁 Files: ${changedFiles.join(', ')}`);
-            console.log('---');
-          }
+          console.log(`🔍 Analyzing most recent commit ${commitSha.substring(0, 7)}: ${commitMessage.split('\n')[0]}`);
           
-          // Write suggestions to file for the next step
-          fs.writeFileSync('/tmp/gitemoji-suggestions.json', JSON.stringify(suggestions, null, 2));
-          
-          if (suggestions.length === 0) {
-            console.log('🎉 All commits already have gitemojis!');
-          } else {
-            console.log(`📋 Found ${suggestions.length} commits that could use gitemojis`);
-          }
-          
-        } catch (error) {
-          console.error('❌ Error:', error.message);
-          // Don't fail the workflow, just log the error
-          fs.writeFileSync('/tmp/gitemoji-suggestions.json', JSON.stringify([], null, 2));
-        }
-        EOF
-        
-        # Run the gitemoji analysis
-        node analyze-gitemoji.js
-        
-    - name: Comment on PR with gitemoji suggestions
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-          
-          // Read suggestions from the analysis
-          let suggestions = [];
-          try {
-            suggestions = JSON.parse(fs.readFileSync('/tmp/gitemoji-suggestions.json', 'utf8'));
-          } catch (e) {
-            console.log('No suggestions file found');
+          // Skip if already has gitemoji
+          if (hasGitemoji(commitMessage)) {
+            console.log('✅ Commit already has gitemoji, nothing to do');
             return;
           }
           
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-          });
-          
-          // Check if we already commented about gitemoji
-          const existingComment = comments.find(comment => 
-            comment.user.login === 'github-actions[bot]' && 
-            comment.body.includes('🎨 **Gitemoji Analysis**')
-          );
-          
-          if (existingComment) {
-            // Update existing comment
-            if (suggestions.length === 0) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: '🎨 **Gitemoji Analysis**: 🎉 All commits in this PR already have appropriate gitemojis! Great job following the [gitmoji specification](https://gitmoji.dev/).'
-              });
-            } else {
-              let body = '🎨 **Gitemoji Analysis**: Found commits that could benefit from gitemojis based on the [official specification](https://gitmoji.dev/):\n\n';
-              
-              for (const suggestion of suggestions) {
-                body += `**Commit \`${suggestion.sha}\`:**\n`;
-                body += `- Original: \`${suggestion.original}\`\n`;
-                body += `- Suggested: \`${suggestion.suggested}\`\n`;
-                body += `- Files: ${suggestion.files.join(', ')}\n\n`;
-              }
-              
-              body += '💡 **Tip**: You can manually add these gitemojis to make your commit history more expressive!';
-              
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: body
-              });
-            }
-          } else {
-            // Create new comment
-            if (suggestions.length === 0) {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: '🎨 **Gitemoji Analysis**: 🎉 All commits in this PR already have appropriate gitemojis! Great job following the [gitmoji specification](https://gitmoji.dev/).'
-              });
-            } else {
-              let body = '🎨 **Gitemoji Analysis**: Found commits that could benefit from gitemojis based on the [official specification](https://gitmoji.dev/):\n\n';
-              
-              for (const suggestion of suggestions) {
-                body += `**Commit \`${suggestion.sha}\`:**\n`;
-                body += `- Original: \`${suggestion.original}\`\n`;
-                body += `- Suggested: \`${suggestion.suggested}\`\n`;
-                body += `- Files: ${suggestion.files.join(', ')}\n\n`;
-              }
-              
-              body += '💡 **Tip**: You can manually add these gitemojis to make your commit history more expressive!';
-              
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-              });
-            }
+          // Get changed files in the commit
+          let changedFiles = [];
+          try {
+            changedFiles = execSync('git diff-tree --no-commit-id --name-only -r HEAD', { encoding: 'utf8' })
+              .trim().split('\n').filter(f => f);
+          } catch (e) {
+            console.log('Could not get changed files, proceeding without file analysis');
           }
+          
+          // Detect appropriate gitemoji
+          const emoji = detectCommitType(commitMessage, changedFiles);
+          const newMessage = emoji + ' ' + commitMessage;
+          
+          console.log(`📝 Original: ${commitMessage.split('\n')[0]}`);
+          console.log(`✨ New: ${newMessage.split('\n')[0]}`);
+          console.log(`📁 Files: ${changedFiles.join(', ')}`);
+          
+          // Amend the most recent commit with the new message
+          fs.writeFileSync('/tmp/new_commit_message.txt', newMessage);
+          execSync('git commit --amend -F /tmp/new_commit_message.txt');
+          
+          console.log('✅ Successfully updated commit message with gitemoji!');
+          
+          // Force push the updated commit
+          execSync('git push --force-with-lease origin ' + process.env.GITHUB_REF_NAME);
+          console.log('✅ Pushed updated commit');
+          
+        } catch (error) {
+          console.error('❌ Error:', error.message);
+          // Don't fail the workflow for gitemoji issues
+          console.log('⚠️ Continuing without gitemoji injection');
+        }
+        EOF
+        
+        # Run the gitemoji injection
+        node inject-gitemoji.js
