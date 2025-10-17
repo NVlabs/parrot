@@ -930,8 +930,13 @@ class fusion_array {
               std::to_string(size()) + " " + std::to_string(value.size()));
         }
 
-        auto const n     = std::max(size(), value.size());
-        auto const shape = size() < value.size() ? value.shape() : _shape;
+        auto const n = std::max(size(), value.size());
+        // Prioritize higher-dimensional arrays to preserve shape information
+        // If ranks are equal, prefer the larger array by size
+        auto const shape = (rank() < value.rank()) ||
+                               (rank() == value.rank() && size() < value.size())
+                             ? value.shape()
+                             : _shape;
 
         auto zip_begin = thrust::make_zip_iterator(
           thrust::make_tuple(_begin, value.begin()));
