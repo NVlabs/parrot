@@ -8,8 +8,12 @@
         <img src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat" /></a>
     <a href="https://en.cppreference.com/w/cpp/compiler_support/11">
         <img src="https://img.shields.io/badge/C++%20-20-ff69b4.svg"/></a>
+    <a href="https://developer.nvidia.com/cuda-toolkit" alt="CUDA 13.0+">
+        <img src="https://img.shields.io/badge/CUDA-13.0-ff69b4.svg"/></a>
     <a href="https://nvlabs.github.io/parrot/" alt="Documentation">
         <img src="https://img.shields.io/badge/docs-latest-blue.svg" /></a>
+    <a href="https://github.com/NVLabs/parrot/actions/workflows/unit-tests.yml" alt="Unit Tests">
+        <img src="https://github.com/NVLabs/parrot/actions/workflows/unit-tests.yml/badge.svg" /></a>
 </p>
 
 **Parrot** is a C++ library for fused array operations using CUDA/Thrust. It provides efficient GPU-accelerated operations with lazy evaluation semantics, allowing for chaining of operations without unnecessary intermediate materializations.
