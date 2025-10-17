@@ -3,15 +3,16 @@ name: Gitemoji Injection
 on:
   push:
     branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
 
 jobs:
   gitemoji-injection:
     runs-on: ubuntu-latest
     # Only run on the main NVLabs/parrot repository, not on forks
-    if: github.repository == 'NVLabs/parrot' && github.event_name == 'push'
+    if: github.repository == 'NVLabs/parrot'
     
+    permissions:
+      contents: write
+      
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -29,46 +30,119 @@ jobs:
         npm init -y
         npm install gitmojis
         
-    - name: Check and inject gitemoji
+    - name: Inject gitemojis into recent commits
       run: |
         # Create the gitemoji injection script
         cat > inject-gitemoji.js << 'EOF'
         const fs = require('fs');
         const { execSync } = require('child_process');
         
-        // Gitemoji mappings based on conventional commit types and file patterns
+        // Comprehensive gitemoji mappings based on official gitmoji spec
         const gitemojis = {
-          // Conventional commit types
-          'feat': '✨',      // New feature
-          'fix': '🐛',       // Bug fix
-          'docs': '📝',      // Documentation
-          'style': '💄',     // Formatting, missing semi colons, etc
-          'refactor': '♻️',  // Code refactoring
-          'perf': '⚡️',     // Performance improvements
-          'test': '✅',      // Adding tests
-          'chore': '🔧',     // Maintenance
-          'ci': '👷',        // CI/CD changes
-          'build': '📦️',    // Build system changes
-          'revert': '⏪️',   // Revert changes
+          // Conventional commit types (primary mappings)
+          'feat': '✨',      // :sparkles: Introduce new features
+          'fix': '🐛',       // :bug: Fix a bug
+          'docs': '📝',      // :memo: Add or update documentation
+          'style': '🎨',     // :art: Improve structure / format of the code
+          'refactor': '♻️',  // :recycle: Refactor code
+          'perf': '⚡️',     // :zap: Improve performance
+          'test': '✅',      // :white_check_mark: Add, update, or pass tests
+          'chore': '🔧',     // :wrench: Add or update configuration files
+          'ci': '👷',        // :construction_worker: Add or update CI build system
+          'build': '📦️',    // :package: Add or update compiled files or packages
+          'revert': '⏪️',   // :rewind: Revert changes
+          
+          // Specific action keywords
+          'hotfix': '🚑️',   // :ambulance: Critical hotfix
+          'security': '🔒️', // :lock: Fix security or privacy issues
+          'secrets': '🔐',   // :closed_lock_with_key: Add or update secrets
+          'release': '🔖',   // :bookmark: Release / Version tags
+          'deploy': '🚀',    // :rocket: Deploy stuff
+          'wip': '🚧',       // :construction: Work in progress
+          'warning': '🚨',   // :rotating_light: Fix compiler / linter warnings
+          'lint': '🚨',      // :rotating_light: Fix compiler / linter warnings
+          'breaking': '💥',  // :boom: Introduce breaking changes
+          'deprecate': '🗑️', // :wastebasket: Deprecate code that needs to be cleaned up
+          'remove': '🔥',    // :fire: Remove code or files
+          'move': '🚚',      // :truck: Move or rename resources
+          'rename': '🚚',    // :truck: Move or rename resources
+          'typo': '✏️',      // :pencil2: Fix typos
+          'merge': '🔀',     // :twisted_rightwards_arrows: Merge branches
+          'experiment': '⚗️', // :alembic: Perform experiments
+          'mock': '🤡',      // :clown_face: Mock things
+          'easter': '🥚',    // :egg: Add or update an easter egg
+          'snapshot': '📸',  // :camera_flash: Add or update snapshots
+          'seed': '🌱',      // :seedling: Add or update seed files
+          'flag': '🚩',      // :triangular_flag_on_post: Add, update, or remove feature flags
+          'catch': '🥅',     // :goal_net: Catch errors
+          'animation': '💫', // :dizzy: Add or update animations and transitions
+          'auth': '🛂',      // :passport_control: Work on code related to authorization
+          'bandage': '🩹',   // :adhesive_bandage: Simple fix for a non-critical issue
+          'explore': '🧐',   // :monocle_face: Data exploration/inspection
+          'dead': '⚰️',     // :coffin: Remove dead code
+          'failing': '🧪',   // :test_tube: Add a failing test
+          'business': '👔',  // :necktie: Add or update business logic
+          'health': '🩺',    // :stethoscope: Add or update healthcheck
+          'infrastructure': '🧱', // :bricks: Infrastructure related changes
+          'dx': '🧑‍💻',      // :technologist: Improve developer experience
+          'sponsor': '💸',   // :money_with_wings: Add sponsorships or money related infrastructure
+          'thread': '🧵',    // :thread: Add or update code related to multithreading
+          'validation': '🦺', // :safety_vest: Add or update code related to validation
+          'offline': '✈️',   // :airplane: Improve offline support
+          
+          // Dependencies
+          'upgrade': '⬆️',   // :arrow_up: Upgrade dependencies
+          'downgrade': '⬇️', // :arrow_down: Downgrade dependencies
+          'pin': '📌',       // :pushpin: Pin dependencies to specific versions
+          'add-dep': '➕',   // :heavy_plus_sign: Add a dependency
+          'remove-dep': '➖', // :heavy_minus_sign: Remove a dependency
           
           // File-based patterns
-          'cmake': '📦️',    // CMake files
-          'docker': '🐳',   // Docker files
-          'github': '👷',   // GitHub workflows
-          'readme': '📝',   // README files
-          'license': '📄',  // License files
-          'gitignore': '🙈', // .gitignore
+          'cmake': '📦️',    // :package: CMake files (build system)
+          'docker': '🐳',   // :whale: Docker files
+          'dockerfile': '🐳', // :whale: Docker files
+          'github': '👷',   // :construction_worker: GitHub workflows
+          'readme': '📝',   // :memo: README files
+          'license': '📄',  // :page_facing_up: License files
+          'gitignore': '🙈', // :see_no_evil: .gitignore
+          'ui': '💄',       // :lipstick: UI and style files
+          'css': '💄',      // :lipstick: UI and style files
+          'html': '💄',     // :lipstick: UI and style files
+          'database': '🗃️', // :card_file_box: Database related changes
+          'db': '🗃️',       // :card_file_box: Database related changes
+          'log': '🔊',      // :loud_sound: Add or update logs
+          'logging': '🔊',  // :loud_sound: Add or update logs
+          'analytics': '📈', // :chart_with_upwards_trend: Add or update analytics
+          'i18n': '🌐',     // :globe_with_meridians: Internationalization
+          'locale': '🌐',   // :globe_with_meridians: Internationalization
+          'responsive': '📱', // :iphone: Work on responsive design
+          'mobile': '📱',   // :iphone: Work on responsive design
+          'seo': '🔍️',     // :mag: Improve SEO
+          'types': '🏷️',   // :label: Add or update types
+          'typescript': '🏷️', // :label: Add or update types
+          'accessibility': '♿️', // :wheelchair: Improve accessibility
+          'a11y': '♿️',     // :wheelchair: Improve accessibility
+          'ux': '🚸',       // :children_crossing: Improve user experience
+          'usability': '🚸', // :children_crossing: Improve user experience
+          'architecture': '🏗️', // :building_construction: Make architectural changes
+          'contributor': '👥', // :busts_in_silhouette: Add or update contributor(s)
+          'comment': '💡',  // :bulb: Add or update comments in source code
+          'comments': '💡', // :bulb: Add or update comments in source code
+          'text': '💬',     // :speech_balloon: Add or update text and literals
+          'assets': '🍱',   // :bento: Add or update assets
           
-          // CUDA/GPU specific
-          'cuda': '🚀',     // CUDA files
-          'gpu': '🚀',      // GPU related
-          'kernel': '⚡️',  // Kernel optimizations
+          // CUDA/GPU specific (keep existing CUDA mappings)
+          'cuda': '🚀',     // :rocket: CUDA files (deploy/performance context)
+          'gpu': '⚡️',     // :zap: GPU related (performance context)
+          'kernel': '⚡️',  // :zap: Kernel optimizations (performance context)
           
-          // Default fallback
-          'update': '⬆️',   // General updates
-          'add': '➕',      // Adding files
-          'remove': '➖',   // Removing files
-          'initial': '🎉', // Initial commit
+          // General action words (fallbacks)
+          'update': '⬆️',   // :arrow_up: General updates (upgrade context)
+          'add': '➕',      // :heavy_plus_sign: Adding files (dependency context)
+          'delete': '🔥',   // :fire: Removing files
+          'initial': '🎉', // :tada: Initial commit
+          'init': '🎉',    // :tada: Initial commit
+          'start': '🎉',   // :tada: Begin a project
         };
         
         function hasGitemoji(message) {
@@ -137,13 +211,20 @@ jobs:
         }
         
         try {
-          // Get the latest commit message
+          // Configure git user for the action
+          execSync('git config user.name "github-actions[bot]"');
+          execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
+          
+          // Get the most recent commit (HEAD)
           const commitMessage = execSync('git log -1 --pretty=%B', { encoding: 'utf8' }).trim();
+          const commitSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+          
+          console.log(`🔍 Analyzing most recent commit ${commitSha.substring(0, 7)}: ${commitMessage.split('\n')[0]}`);
           
           // Skip if already has gitemoji
           if (hasGitemoji(commitMessage)) {
-            console.log('✅ Commit already has gitemoji:', commitMessage.split('\n')[0]);
-            process.exit(0);
+            console.log('✅ Commit already has gitemoji, nothing to do');
+            return;
           }
           
           // Get changed files in the commit
@@ -159,50 +240,26 @@ jobs:
           const emoji = detectCommitType(commitMessage, changedFiles);
           const newMessage = emoji + ' ' + commitMessage;
           
-          console.log('📝 Original message:', commitMessage.split('\n')[0]);
-          console.log('✨ New message:', newMessage.split('\n')[0]);
-          console.log('📁 Changed files:', changedFiles.join(', '));
+          console.log(`📝 Original: ${commitMessage.split('\n')[0]}`);
+          console.log(`✨ New: ${newMessage.split('\n')[0]}`);
+          console.log(`📁 Files: ${changedFiles.join(', ')}`);
           
-          // Configure git user for the action
-          execSync('git config user.name "github-actions[bot]"');
-          execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
-          
-          // Amend the commit with the new message
+          // Amend the most recent commit with the new message
           fs.writeFileSync('/tmp/new_commit_message.txt', newMessage);
           execSync('git commit --amend -F /tmp/new_commit_message.txt');
           
-          console.log('✅ Successfully injected gitemoji!');
+          console.log('✅ Successfully updated commit message with gitemoji!');
+          
+          // Force push the updated commit
+          execSync('git push --force-with-lease origin ' + process.env.GITHUB_REF_NAME);
+          console.log('✅ Pushed updated commit');
           
         } catch (error) {
           console.error('❌ Error:', error.message);
-          process.exit(1);
+          // Don't fail the workflow for gitemoji issues
+          console.log('⚠️ Continuing without gitemoji injection');
         }
         EOF
         
         # Run the gitemoji injection
         node inject-gitemoji.js
-        
-    - name: Push amended commit
-      if: success()
-      run: |
-        # Check if there are any changes to push
-        if git diff HEAD~1 --quiet; then
-          echo "No changes to push"
-        else
-          echo "Pushing amended commit with gitemoji"
-          git push --force-with-lease origin ${{ github.ref_name }}
-        fi
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Comment on PR (if applicable)
-      if: github.event_name == 'pull_request'
-      uses: actions/github-script@v7
-      with:
-        script: |
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: '🎨 **Gitemoji Injection**: This PR has been automatically checked for gitemojis. Commits without gitemojis will be updated when merged to main.'
-          })
