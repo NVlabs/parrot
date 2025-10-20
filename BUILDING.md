@@ -10,6 +10,80 @@ This document describes how to build, test, and generate documentation for the p
 - NVIDIA GPU with compute capability 7.0 or higher
 - Python 3 with pip (for documentation, optional)
 
+<details>
+<summary><strong>CUDA Installation</strong> (Click to expand if you need to install CUDA)</summary>
+
+The most common setup issue is the missing NVCC compiler. Here's how to install CUDA properly:
+
+### Option 1: NVIDIA CUDA Toolkit (Recommended)
+
+1. Download the CUDA Toolkit from [NVIDIA Developer](https://developer.nvidia.com/cuda-downloads)
+2. Follow the [CUDA Installation Guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) for your platform
+
+### Option 2: NVIDIA HPC SDK
+
+1. Download from [NVIDIA HPC SDK Downloads](https://developer.nvidia.com/hpc-sdk-downloads)
+2. Follow the [HPC SDK Installation Guide](https://docs.nvidia.com/hpc-sdk/hpc-sdk-install-guide/index.html)
+
+### Environment Configuration
+
+Add these to your `~/.bashrc`, `~/.zshrc`, or equivalent:
+
+```bash
+# CUDA installation paths (adjust based on your installation)
+export CUDA_HOME=/usr/local/cuda
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
+# For NVIDIA HPC SDK installations
+# export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda
+# export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin:$PATH
+```
+
+Reload your shell configuration:
+```bash
+source ~/.bashrc  # or ~/.zshrc
+```
+
+### Verification
+
+Check that CUDA is properly installed:
+
+```bash
+# Check NVCC compiler
+nvcc --version
+
+# Check NVIDIA driver
+nvidia-smi
+```
+
+### Troubleshooting "Could not find NVCC compiler"
+
+If CMake cannot find the NVCC compiler:
+
+1. **Set CMAKE_CUDA_COMPILER manually**:
+   ```bash
+   cmake -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc ..
+   # or for HPC SDK:
+   cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/nvcc ..
+   ```
+
+2. **Check NVCC is in PATH**:
+   ```bash
+   which nvcc
+   ```
+
+3. **Install NVIDIA drivers** if `nvidia-smi` doesn't work:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install nvidia-driver-580  # or latest version
+   
+   # CentOS/RHEL/Fedora
+   sudo dnf install akmod-nvidia
+   ```
+
+</details>
+
 ## CUDA Architecture Configuration
 
 The project automatically detects your GPU architecture, but you can also configure it manually:
@@ -70,30 +144,6 @@ ctest
 ```bash
 # Basic operations
 ./test_basic
-
-# Sorting algorithms
-./test_sorting
-
-# Mathematical operations
-./test_math
-
-# Reduction operations
-./test_reductions
-
-# Scan operations
-./test_scans
-
-# Array operations
-./test_array_ops
-
-# Advanced operations
-./test_advanced
-
-# Multidimensional operations
-./test_multidim
-
-# Integration tests
-./test_integration
 ```
 
 ## Building Documentation
