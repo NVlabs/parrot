@@ -84,6 +84,30 @@ If CMake cannot find the NVCC compiler:
 
 </details>
 
+## Development Container (Optional)
+
+For a pre-configured development environment with all dependencies, you can use Docker containers:
+
+### Quick Setup
+```bash
+# Automated setup (recommended for beginners)
+scripts/setup-dev-container.sh
+
+# Or manually with VS Code/Cursor Dev Containers
+code .    # VS Code will prompt to "Reopen in Container"
+cursor .  # Cursor will prompt to "Reopen in Container"
+
+# Or standalone Docker container
+docker compose up -d parrot-dev
+docker compose exec parrot-dev bash
+```
+
+### Requirements
+- Docker with NVIDIA Container Toolkit
+- For VS Code/Cursor: Dev Containers extension
+
+The container includes CUDA 13.0+, CMake, ccache, and all development tools pre-configured.
+
 ## CUDA Architecture Configuration
 
 The project automatically detects your GPU architecture, but you can also configure it manually:
@@ -124,7 +148,7 @@ cmake .. -DCUDA_ARCH=ALL
 
 3. Build the project:
    ```bash
-   cmake --build .
+   cmake --build . -j$(nproc)
    ```
 
 ## Running Tests

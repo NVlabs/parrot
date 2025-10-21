@@ -1,0 +1,55 @@
+# Build artifacts
+build/
+*.o
+*.so
+*.a
+*.exe
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Documentation build
+docs/build/
+docs/doxyoutput/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Docker files (avoid recursive copying)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Large files that aren't needed in container
+*.tar.gz
+*.zip
+*.7z
+
+# Cache directories
+.cache/
+.ccache/
+
+# Test outputs
+Testing/

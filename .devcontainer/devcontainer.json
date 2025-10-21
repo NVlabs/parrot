@@ -1,0 +1,61 @@
+{
+  "name": "NVIDIA Parrot Development",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "parrot-dev",
+  "workspaceFolder": "/workspace",
+  
+  // Configure tool-specific properties.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "nvidia.nsight-vscode-edition",
+        "twxs.cmake",
+        "ms-python.python",
+        "ms-python.debugpy",
+        "github.copilot",
+        "github.copilot-chat",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "cmake.configureOnOpen": false,
+        "cmake.buildDirectory": "${workspaceFolder}/build",
+        "cmake.generator": "Unix Makefiles",
+        "cmake.parallelJobs": 0,
+        "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+        "C_Cpp.default.cppStandard": "c++20",
+        "files.associations": {
+          "*.cu": "cuda-cpp",
+          "*.cuh": "cuda-cpp"
+        }
+      }
+    }
+  },
+
+  // Features to add to the dev container. More info: https://containers.dev/features.
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // Use 'forwardPorts' to make a list of ports inside the container available locally.
+  "forwardPorts": [8000, 8080],
+
+  // Use 'postCreateCommand' to run commands after the container is created.
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  // Configure tool-specific properties.
+  "remoteUser": "developer",
+  
+  // Ensure the container has access to GPU
+  "runArgs": [
+    "--gpus=all",
+    "--shm-size=2g"
+  ],
+
+  // Mount the workspace
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+  ]
+}
