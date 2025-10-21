@@ -191,9 +191,10 @@ set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 FetchContent_Declare(
   doctest
   GIT_REPOSITORY https://github.com/doctest/doctest.git
-  GIT_TAG v2.4.11 # Using a specific stable tag with 'v' prefix
+  GIT_TAG v2.4.11
   GIT_SHALLOW TRUE
   TIMEOUT 30
+  UPDATE_COMMAND ""
 )
 
 # Download NVIDIA CCCL for latest CUB/Thrust
@@ -207,7 +208,17 @@ FetchContent_Declare(
 
 # Make dependencies available with timeout handling
 message(STATUS "Downloading doctest... (this may take a moment)")
-FetchContent_MakeAvailable(doctest)
+FetchContent_GetProperties(doctest)
+if(NOT doctest_POPULATED)
+  FetchContent_Populate(doctest)
+  # Patch doctest CMakeLists.txt to use a modern CMake minimum version
+  file(READ "${doctest_SOURCE_DIR}/CMakeLists.txt" DOCTEST_CMAKE_CONTENT)
+  string(REGEX REPLACE "cmake_minimum_required\\(VERSION [0-9.]+\\)" 
+                       "cmake_minimum_required(VERSION 3.10)" 
+                       DOCTEST_CMAKE_CONTENT "${DOCTEST_CMAKE_CONTENT}")
+  file(WRITE "${doctest_SOURCE_DIR}/CMakeLists.txt" "${DOCTEST_CMAKE_CONTENT}")
+  add_subdirectory(${doctest_SOURCE_DIR} ${doctest_BINARY_DIR})
+endif()
 
 message(STATUS "Downloading NVIDIA CCCL... (this may take a moment)")
 FetchContent_MakeAvailable(cccl)

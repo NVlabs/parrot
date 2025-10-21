@@ -1,0 +1,100 @@
+# NVIDIA Parrot Development Environment
+# Standalone Docker Compose for development without VS Code
+
+services:
+  parrot-dev:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        - CUDA_VERSION=13.0.1
+        - UBUNTU_VERSION=22.04
+    
+    container_name: parrot-development
+    
+    # Enable GPU access (Docker Compose v2.3+ with Docker 19.03+)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # Alternative for older Docker versions (uncomment if needed)
+    # runtime: nvidia
+    
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_HOME=/usr/local/cuda
+      - PATH=/usr/local/cuda/bin:${PATH}
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
+      - CCACHE_DIR=/home/developer/.ccache
+    
+    volumes:
+      # Mount the entire project
+      - .:/workspace:cached
+      # Persistent caches for faster builds
+      - parrot-cuda-cache:/home/developer/.cache/cuda
+      - parrot-cmake-cache:/home/developer/.cache/cmake
+      - parrot-ccache:/home/developer/.ccache
+    
+    working_dir: /workspace
+    
+    # Keep container running for interactive development
+    stdin_open: true
+    tty: true
+    
+    # Shared memory for CUDA operations
+    shm_size: 2gb
+    
+    # Use host networking for easier port access
+    network_mode: host
+    
+    # Override default command for interactive shell
+    command: /bin/bash
+    
+    # Restart policy
+    restart: unless-stopped
+
+  # Optional: Documentation server
+  docs:
+    build:
+      context: .devcontainer
+      dockerfile: Dockerfile
+    
+    container_name: parrot-docs
+    
+    volumes:
+      - .:/workspace:cached
+    
+    working_dir: /workspace
+    
+    ports:
+      - "8000:8000"
+    
+    command: >
+      bash -c "
+        cd docs &&
+        python3 -m http.server 8000 --directory build/html
+      "
+    
+    depends_on:
+      - parrot-dev
+    
+    profiles:
+      - docs
+
+volumes:
+  parrot-cuda-cache:
+    driver: local
+  parrot-cmake-cache:
+    driver: local
+  parrot-ccache:
+    driver: local
+
+# Network configuration (optional)
+networks:
+  default:
+    name: parrot-network
