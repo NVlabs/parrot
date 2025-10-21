@@ -44,6 +44,7 @@ Contents
 .. toctree::
    :maxdepth: 1
    
+   how_to_use
    fusion_array
    examples
 
