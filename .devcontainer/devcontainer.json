@@ -30,6 +30,32 @@
           "*.cuh": "cuda-cpp"
         }
       }
+    },
+    // Cursor uses the same extensions and settings as VS Code
+    "cursor": {
+      "extensions": [
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "nvidia.nsight-vscode-edition",
+        "twxs.cmake",
+        "ms-python.python",
+        "ms-python.debugpy",
+        "github.copilot",
+        "github.copilot-chat",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "cmake.configureOnOpen": false,
+        "cmake.buildDirectory": "${workspaceFolder}/build",
+        "cmake.generator": "Unix Makefiles",
+        "cmake.parallelJobs": 0,
+        "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+        "C_Cpp.default.cppStandard": "c++20",
+        "files.associations": {
+          "*.cu": "cuda-cpp",
+          "*.cuh": "cuda-cpp"
+        }
+      }
     }
   },
 
