@@ -1,0 +1,49 @@
+services:
+  parrot-dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        - CUDA_VERSION=13.0.1
+        - UBUNTU_VERSION=22.04
+    
+    # Enable GPU access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # Alternative GPU access for older Docker versions
+    runtime: nvidia
+    
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_HOME=/usr/local/cuda
+      - PATH=/usr/local/cuda/bin:${PATH}
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
+    
+    volumes:
+      - ..:/workspace:cached
+      - cuda-cache:/home/developer/.cache/cuda
+      - cmake-cache:/home/developer/.cache/cmake
+      - ccache-cache:/home/developer/.ccache
+    
+    working_dir: /workspace
+    
+    # Keep container running
+    command: sleep infinity
+    
+    # Shared memory for CUDA operations
+    shm_size: 2gb
+    
+    # Network configuration
+    network_mode: host
+
+volumes:
+  cuda-cache:
+  cmake-cache:
+  ccache-cache:

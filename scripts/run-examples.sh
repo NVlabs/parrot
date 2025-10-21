@@ -15,12 +15,21 @@ EXAMPLES_DIR="$PROJECT_ROOT/examples"
 BUILD_DIR="$PROJECT_ROOT/build"
 OUTPUTS_DIR="$SCRIPT_DIR/expected_outputs"  # Expected outputs stay in scripts/
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Colors for output - only use if terminal supports colors
+if [[ -t 1 ]] && command -v tput >/dev/null 2>&1 && tput colors >/dev/null 2>&1 && [[ $(tput colors) -ge 8 ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m' # No Color
+else
+    # No color support or output is redirected
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    NC=''
+fi
 
 # Counters
 TOTAL_EXAMPLES=0
