@@ -38,6 +38,13 @@ Quick Start
        return 0;
    }
 
+**Performance Comparison of Softmax:**
+
+.. raw:: html
+   :file: _static/profiling/softmax.html
+
+For a full screen version, click `here <_static/softmax.html>`_.
+
 Find more examples :doc:`here <examples>`.
 
 Contents
