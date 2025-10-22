@@ -43,7 +43,7 @@ Quick Start
 .. raw:: html
    :file: _static/profiling/softmax.html
 
-For a full screen version, click `here <_static/softmax.html>`_.
+For a full screen version, click `here <_static/profiling/softmax.html>`_.
 
 Find more examples :doc:`here <examples>`.
 
