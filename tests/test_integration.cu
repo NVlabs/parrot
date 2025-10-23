@@ -432,10 +432,10 @@ TEST_CASE("ParrotTest - CompositeStorage_SoftmaxPattern") {
     // z = [[-2, -1, 0], [-2, -1, 0]] after subtraction
     // exp(z) = [[≈0.1353, ≈0.3679, 1.0], [≈0.1353, ≈0.3679, 1.0]]
     // softmax = exp(z) / sum(exp(z)) for each row
-    double exp_neg2 = std::exp(-2.0);  // ≈0.1353
-    double exp_neg1 = std::exp(-1.0);  // ≈0.3679
-    double exp_0    = 1.0;
-    double row_sum  = exp_neg2 + exp_neg1 + exp_0;  // ≈1.5032
+    double const exp_neg2 = std::exp(-2.0);  // ≈0.1353
+    double const exp_neg1 = std::exp(-1.0);  // ≈0.3679
+    double const exp_0    = 1.0;
+    double const row_sum  = exp_neg2 + exp_neg1 + exp_0;  // ≈1.5032
 
     CHECK(host_result[0] == doctest::Approx(exp_neg2 / row_sum).epsilon(0.01));
     CHECK(host_result[1] == doctest::Approx(exp_neg1 / row_sum).epsilon(0.01));
@@ -481,9 +481,9 @@ TEST_CASE("ParrotTest - CompositeStorage_AppendPattern") {
 
     // Pattern: [1,2,3,4,5,6] / [6,15,1,1,1,1] - need to verify actual pattern
     // Just verify it runs without crashes and produces reasonable values
-    for (size_t i = 0; i < host_result.size(); ++i) {
-        CHECK(host_result[i] >= 0.0);  // All results should be non-negative
-        CHECK(host_result[i] < 10.0);  // And reasonable magnitude
+    for (double& i : host_result) {
+        CHECK(i >= 0.0);  // All results should be non-negative
+        CHECK(i < 10.0);  // And reasonable magnitude
     }
 }
 
