@@ -43,6 +43,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Install clang-tidy
+      run: |
+        if ! command -v clang-tidy &> /dev/null; then
+          echo "Installing clang-tidy..."
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy
+        else
+          echo "clang-tidy is already installed"
+        fi
+        clang-tidy --version
+        
     - name: Verify CUDA installation (HPC SDK)
       run: |
         # Check if nvcc is in PATH, if not, set it up
@@ -51,14 +62,6 @@ jobs:
           export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
         fi
         nvcc --version || echo "Warning: nvcc not found, but clang-tidy may still work"
-        
-    - name: Verify clang-tidy installation
-      run: |
-        if ! command -v clang-tidy &> /dev/null; then
-          echo "Error: clang-tidy is not installed"
-          exit 1
-        fi
-        clang-tidy --version
         
     - name: Create build directory
       run: mkdir -p build
