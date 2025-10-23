@@ -49,15 +49,23 @@ jobs:
       
     - name: Verify clang-tidy installation
       run: |
-        if ! command -v clang-tidy &> /dev/null; then
-          echo "Error: clang-tidy is not installed on the self-hosted runner"
-          echo "Please install it using one of the following methods:"
-          echo "  - Linuxbrew: brew install llvm"
-          echo "  - APT: sudo apt-get install clang-tidy"
-          echo "  - Manual: Download from https://releases.llvm.org/"
+        echo "PATH is: $PATH"
+        echo "Checking for clang-tidy..."
+        which clang-tidy || echo "clang-tidy not found in PATH"
+        which -a clang-tidy || echo "No clang-tidy found anywhere"
+        
+        if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
+          echo "Homebrew clang-tidy exists at /home/linuxbrew/.linuxbrew/bin/clang-tidy"
+          /home/linuxbrew/.linuxbrew/bin/clang-tidy --version
+        else
+          echo "ERROR: Homebrew clang-tidy not found!"
           exit 1
         fi
-        echo "Found clang-tidy at: $(which clang-tidy)"
+        
+        # Force use of Homebrew clang-tidy
+        export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+        echo "Updated PATH to: $PATH"
+        echo "Now clang-tidy is at: $(which clang-tidy)"
         clang-tidy --version
         
     - name: Verify CUDA installation (HPC SDK)
