@@ -295,6 +295,9 @@ run_clang_tidy() {
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Xclang"
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-fcuda-allow-variadic-functions"
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Wno-unknown-cuda-version"
+    # Suppress system header compilation errors that don't affect user code analysis
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Wno-error"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Wno-unused-command-line-argument"
     
     # Add fix mode if enabled
     FIX_ARGS=""
