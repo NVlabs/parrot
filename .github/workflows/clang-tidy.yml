@@ -43,15 +43,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Install clang-tidy
+    - name: Verify clang-tidy installation
       run: |
         if ! command -v clang-tidy &> /dev/null; then
-          echo "Installing clang-tidy..."
-          sudo apt-get update
-          sudo apt-get install -y clang-tidy
-        else
-          echo "clang-tidy is already installed"
+          echo "Error: clang-tidy is not installed on the self-hosted runner"
+          echo "Please install it using one of the following methods:"
+          echo "  - Linuxbrew: brew install llvm"
+          echo "  - APT: sudo apt-get install clang-tidy"
+          echo "  - Manual: Download from https://releases.llvm.org/"
+          exit 1
         fi
+        echo "Found clang-tidy at: $(which clang-tidy)"
         clang-tidy --version
         
     - name: Verify CUDA installation (HPC SDK)
