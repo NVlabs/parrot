@@ -299,9 +299,10 @@ run_clang_tidy() {
         FIX_ARGS="--fix"
     fi
     
-    # Run clang-tidy, excluding doctest headers from analysis
+    # Run clang-tidy, excluding system, CCCL, and doctest headers from analysis
+    # Only analyze headers in the project root
     clang-tidy -config-file="$PROJECT_ROOT/.clang-tidy-cuda" \
-               -header-filter="^(?!.*doctest).*$" \
+               -header-filter="^$PROJECT_ROOT/(?!build/).*\.(hpp|h|cuh)$" \
                -line-filter="[{'name':'$file','lines':[[1,$line_count]]}]" \
                $EXTRA_ARGS_STRING \
                $FIX_ARGS \
