@@ -1,0 +1,96 @@
+name: Clang-Tidy Static Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**.cu'
+      - '**.hpp'
+      - '**.cuh'
+      - '**.h'
+      - '**.cpp'
+      - '**.c'
+      - 'CMakeLists.txt'
+      - 'tests/**'
+      - 'scripts/run-clang-tidy.sh'
+      - '.clang-tidy-cuda'
+      - '.clang-tidy-suppression'
+      - '.github/workflows/clang-tidy.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**.cu'
+      - '**.hpp'
+      - '**.cuh'
+      - '**.h'
+      - '**.cpp'
+      - '**.c'
+      - 'CMakeLists.txt'
+      - 'tests/**'
+      - 'scripts/run-clang-tidy.sh'
+      - '.clang-tidy-cuda'
+      - '.clang-tidy-suppression'
+      - '.github/workflows/clang-tidy.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  clang-tidy:
+    runs-on: [self-hosted, Linux, X64]
+    # Only run on the main NVLabs/parrot repository, not on forks
+    if: github.repository == 'NVLabs/parrot'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Verify CUDA installation (HPC SDK)
+      run: |
+        # Check if nvcc is in PATH, if not, set it up
+        if ! command -v nvcc &> /dev/null; then
+          export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin:$PATH
+          export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        fi
+        nvcc --version || echo "Warning: nvcc not found, but clang-tidy may still work"
+        
+    - name: Verify clang-tidy installation
+      run: |
+        if ! command -v clang-tidy &> /dev/null; then
+          echo "Error: clang-tidy is not installed"
+          exit 1
+        fi
+        clang-tidy --version
+        
+    - name: Create build directory
+      run: mkdir -p build
+      
+    - name: Configure with CMake
+      env:
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+      run: |
+        cd build
+        cmake .. -DCUDA_ARCH=AUTO
+        
+    - name: Build project (to fetch dependencies like CCCL)
+      env:
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+      run: |
+        cd build
+        # Build with all cores for speed (as per BUILDING.md)
+        cmake --build . -j$(nproc)
+        
+    - name: Run clang-tidy on parrot.hpp
+      run: |
+        bash scripts/run-clang-tidy.sh parrot.hpp
+        
+    - name: Run clang-tidy on all test files
+      run: |
+        # Run clang-tidy with parallel jobs for speed
+        bash scripts/run-clang-tidy.sh tests/*.cu
+        
+    - name: Check for critical errors
+      run: |
+        echo "✅ Clang-tidy analysis completed!"
+        echo "Note: Warnings are informational. Critical errors would have failed the previous steps."
+
