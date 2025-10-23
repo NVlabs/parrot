@@ -22,7 +22,6 @@ Quick Start
 .. code-block:: cpp
 
    #include "parrot.hpp"
-   #include <iostream>
    
    int main() {
        // Create a matrix
