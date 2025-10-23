@@ -1,0 +1,28 @@
+---
+# CUDA-specific clang-tidy configuration
+Checks: '-*,
+  abseil-*,
+  bugprone-*,
+  cppcoreguidelines-*,
+  google-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity, 
+  -readability-avoid-nested-conditional-operator,
+  -misc-non-private-member-variables-in-classes,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-magic-numbers,
+
+  -readability-identifier-naming, 
+  -misc-use-anonymous-namespace,
+  -cppcoreguidelines-avoid-do-while'
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '^(?!.*googletest).*$'
+FormatStyle: 'file'

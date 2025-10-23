@@ -88,25 +88,80 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check if clang-tidy is installed
-if ! command -v clang-tidy &> /dev/null; then
+# Find the best clang-tidy installation (prefer newer versions)
+CLANG_TIDY=""
+
+# First try Homebrew (usually newer - LLVM 18+)
+if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
+    CLANG_TIDY="/home/linuxbrew/.linuxbrew/bin/clang-tidy"
+    echo "Using Homebrew clang-tidy: $($CLANG_TIDY --version | head -1)"
+# Try system clang-tidy as fallback
+elif command -v clang-tidy &> /dev/null; then
+    CLANG_TIDY="clang-tidy"
+    CLANG_VERSION=$(clang-tidy --version | head -1)
+    echo "Using system clang-tidy: $CLANG_VERSION"
+    
+    # Warn if using old version
+    if echo "$CLANG_VERSION" | grep -qE "version (1[0-4]|[0-9])\\."; then
+        echo "⚠️  WARNING: Detected clang-tidy version 14 or older."
+        echo "    LLVM 14 has limited CUDA support and may report false errors."
+        echo "    Consider installing LLVM 18+: brew install llvm"
+    fi
+else
     echo "Error: clang-tidy is not installed. Please install it first."
-    echo "On Ubuntu/Debian: sudo apt-get install clang-tidy"
-    echo "On macOS: brew install llvm (and make sure it's in your PATH)"
+    echo "Recommended: brew install llvm (for LLVM 18+)"
+    echo "Alternative: sudo apt-get install clang-tidy"
     exit 1
 fi
 
-# Create include directories for thrust if they don't exist
-THRUST_INCLUDE_DIR="/usr/local/cuda/include"
-if [ ! -d "$THRUST_INCLUDE_DIR" ]; then
-    # Try to find CUDA location
-    if command -v nvcc &> /dev/null; then
-        CUDA_PATH=$(dirname $(dirname $(which nvcc)))
-        THRUST_INCLUDE_DIR="$CUDA_PATH/include"
-    else
-        echo "Warning: Could not find CUDA include path. Thrust headers might not be found."
-        THRUST_INCLUDE_DIR=""
+# Find CUDA and Thrust installations
+THRUST_INCLUDE_DIR=""
+CUDA_PATH=""
+CCCL_INCLUDE_DIR=""
+
+# First priority: Use CCCL from build directory (has the correct Thrust version)
+if [ -d "$PROJECT_ROOT/build/_deps/cccl-src" ]; then
+    CCCL_INCLUDE_DIR="$PROJECT_ROOT/build/_deps/cccl-src"
+    echo "Using CCCL (Thrust/CUB/libcudacxx) from build directory"
+fi
+
+# Find CUDA installation (prefer HPC SDK for CUDA runtime/stdlib)
+if [ -d "/opt/nvidia/hpc_sdk" ]; then
+    # Find the most recent HPC SDK version
+    HPC_SDK_VERSION=$(ls -1 /opt/nvidia/hpc_sdk/Linux_x86_64/ 2>/dev/null | sort -V | tail -n1)
+    if [ -n "$HPC_SDK_VERSION" ]; then
+        # Check for cuda directory in HPC SDK
+        if [ -d "/opt/nvidia/hpc_sdk/Linux_x86_64/$HPC_SDK_VERSION/cuda" ]; then
+            CUDA_PATH="/opt/nvidia/hpc_sdk/Linux_x86_64/$HPC_SDK_VERSION/cuda"
+            # Only use HPC SDK's include if we don't have CCCL
+            if [ -z "$CCCL_INCLUDE_DIR" ]; then
+                THRUST_INCLUDE_DIR="$CUDA_PATH/include"
+            fi
+            echo "Using HPC SDK CUDA at $CUDA_PATH"
+        fi
     fi
+fi
+
+# Fallback to standard CUDA installation
+if [ -z "$CUDA_PATH" ] && [ -d "/usr/local/cuda" ]; then
+    CUDA_PATH="/usr/local/cuda"
+    if [ -z "$CCCL_INCLUDE_DIR" ]; then
+        THRUST_INCLUDE_DIR="/usr/local/cuda/include"
+    fi
+    echo "Using standard CUDA at $CUDA_PATH"
+fi
+
+# Last resort: try to find nvcc in PATH
+if [ -z "$CUDA_PATH" ] && command -v nvcc &> /dev/null; then
+    CUDA_PATH=$(dirname $(dirname $(which nvcc)))
+    if [ -z "$CCCL_INCLUDE_DIR" ]; then
+        THRUST_INCLUDE_DIR="$CUDA_PATH/include"
+    fi
+    echo "Using CUDA from PATH at $CUDA_PATH"
+fi
+
+if [ -z "$CUDA_PATH" ]; then
+    echo "Warning: Could not find CUDA installation."
 fi
 
 # Find doctest in the project directory
@@ -145,7 +200,18 @@ INCLUDE_ARGS=""
 if [ -n "$PROJECT_ROOT" ]; then
     INCLUDE_ARGS="$INCLUDE_ARGS -I$PROJECT_ROOT"
 fi
-if [ -n "$THRUST_INCLUDE_DIR" ]; then
+# Add CCCL includes (thrust, cub, libcudacxx) - these take priority
+if [ -n "$CCCL_INCLUDE_DIR" ]; then
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CCCL_INCLUDE_DIR/thrust"
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CCCL_INCLUDE_DIR/cub"
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CCCL_INCLUDE_DIR/libcudacxx/include"
+fi
+# Add CUDA includes (for CUDA runtime, etc.)
+if [ -n "$CUDA_PATH" ]; then
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CUDA_PATH/include"
+fi
+# Fallback to legacy THRUST_INCLUDE_DIR if no CCCL
+if [ -n "$THRUST_INCLUDE_DIR" ] && [ -z "$CCCL_INCLUDE_DIR" ]; then
     INCLUDE_ARGS="$INCLUDE_ARGS -I$THRUST_INCLUDE_DIR"
 fi
 if [ -n "$DOCTEST_DIR" ]; then
@@ -242,7 +308,14 @@ run_clang_tidy() {
         EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=$include_path"
     done
     
+    # Add CUDA-specific flags to avoid false positive errors
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=--no-cuda-version-check"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Xclang"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-fcuda-allow-variadic-functions"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Wno-unknown-cuda-version"
+    # Suppress system header compilation errors that don't affect user code analysis
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Wno-error"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Wno-unused-command-line-argument"
     
     # Add fix mode if enabled
     FIX_ARGS=""
@@ -251,13 +324,14 @@ run_clang_tidy() {
         FIX_ARGS="--fix"
     fi
     
-    # Run clang-tidy, excluding doctest headers from analysis
-    clang-tidy -config-file="$PROJECT_ROOT/.clang-tidy-cuda" \
-               -header-filter="^(?!.*doctest).*$" \
-               -line-filter="[{'name':'$file','lines':[[1,$line_count]]}]" \
-               $EXTRA_ARGS_STRING \
-               $FIX_ARGS \
-               "$file"
+    # Run clang-tidy, excluding system, CCCL, and doctest headers from analysis
+    # Only analyze headers in the project root
+    "$CLANG_TIDY" -config-file="$PROJECT_ROOT/.clang-tidy-cuda" \
+                  -header-filter="^$PROJECT_ROOT/(?!build/).*\.(hpp|h|cuh)$" \
+                  -line-filter="[{'name':'$file','lines':[[1,$line_count]]}]" \
+                  $EXTRA_ARGS_STRING \
+                  $FIX_ARGS \
+                  "$file"
     
     local exit_code=${PIPESTATUS[0]}
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 1 ]; then
