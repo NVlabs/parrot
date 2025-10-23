@@ -96,17 +96,54 @@ if ! command -v clang-tidy &> /dev/null; then
     exit 1
 fi
 
-# Create include directories for thrust if they don't exist
-THRUST_INCLUDE_DIR="/usr/local/cuda/include"
-if [ ! -d "$THRUST_INCLUDE_DIR" ]; then
-    # Try to find CUDA location
-    if command -v nvcc &> /dev/null; then
-        CUDA_PATH=$(dirname $(dirname $(which nvcc)))
-        THRUST_INCLUDE_DIR="$CUDA_PATH/include"
-    else
-        echo "Warning: Could not find CUDA include path. Thrust headers might not be found."
-        THRUST_INCLUDE_DIR=""
+# Find CUDA and Thrust installations
+THRUST_INCLUDE_DIR=""
+CUDA_PATH=""
+CCCL_INCLUDE_DIR=""
+
+# First priority: Use CCCL from build directory (has the correct Thrust version)
+if [ -d "$PROJECT_ROOT/build/_deps/cccl-src" ]; then
+    CCCL_INCLUDE_DIR="$PROJECT_ROOT/build/_deps/cccl-src"
+    echo "Using CCCL (Thrust/CUB/libcudacxx) from build directory"
+fi
+
+# Find CUDA installation (prefer HPC SDK for CUDA runtime/stdlib)
+if [ -d "/opt/nvidia/hpc_sdk" ]; then
+    # Find the most recent HPC SDK version
+    HPC_SDK_VERSION=$(ls -1 /opt/nvidia/hpc_sdk/Linux_x86_64/ 2>/dev/null | sort -V | tail -n1)
+    if [ -n "$HPC_SDK_VERSION" ]; then
+        # Check for cuda directory in HPC SDK
+        if [ -d "/opt/nvidia/hpc_sdk/Linux_x86_64/$HPC_SDK_VERSION/cuda" ]; then
+            CUDA_PATH="/opt/nvidia/hpc_sdk/Linux_x86_64/$HPC_SDK_VERSION/cuda"
+            # Only use HPC SDK's include if we don't have CCCL
+            if [ -z "$CCCL_INCLUDE_DIR" ]; then
+                THRUST_INCLUDE_DIR="$CUDA_PATH/include"
+            fi
+            echo "Using HPC SDK CUDA at $CUDA_PATH"
+        fi
     fi
+fi
+
+# Fallback to standard CUDA installation
+if [ -z "$CUDA_PATH" ] && [ -d "/usr/local/cuda" ]; then
+    CUDA_PATH="/usr/local/cuda"
+    if [ -z "$CCCL_INCLUDE_DIR" ]; then
+        THRUST_INCLUDE_DIR="/usr/local/cuda/include"
+    fi
+    echo "Using standard CUDA at $CUDA_PATH"
+fi
+
+# Last resort: try to find nvcc in PATH
+if [ -z "$CUDA_PATH" ] && command -v nvcc &> /dev/null; then
+    CUDA_PATH=$(dirname $(dirname $(which nvcc)))
+    if [ -z "$CCCL_INCLUDE_DIR" ]; then
+        THRUST_INCLUDE_DIR="$CUDA_PATH/include"
+    fi
+    echo "Using CUDA from PATH at $CUDA_PATH"
+fi
+
+if [ -z "$CUDA_PATH" ]; then
+    echo "Warning: Could not find CUDA installation."
 fi
 
 # Find doctest in the project directory
@@ -145,7 +182,18 @@ INCLUDE_ARGS=""
 if [ -n "$PROJECT_ROOT" ]; then
     INCLUDE_ARGS="$INCLUDE_ARGS -I$PROJECT_ROOT"
 fi
-if [ -n "$THRUST_INCLUDE_DIR" ]; then
+# Add CCCL includes (thrust, cub, libcudacxx) - these take priority
+if [ -n "$CCCL_INCLUDE_DIR" ]; then
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CCCL_INCLUDE_DIR/thrust"
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CCCL_INCLUDE_DIR/cub"
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CCCL_INCLUDE_DIR/libcudacxx/include"
+fi
+# Add CUDA includes (for CUDA runtime, etc.)
+if [ -n "$CUDA_PATH" ]; then
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CUDA_PATH/include"
+fi
+# Fallback to legacy THRUST_INCLUDE_DIR if no CCCL
+if [ -n "$THRUST_INCLUDE_DIR" ] && [ -z "$CCCL_INCLUDE_DIR" ]; then
     INCLUDE_ARGS="$INCLUDE_ARGS -I$THRUST_INCLUDE_DIR"
 fi
 if [ -n "$DOCTEST_DIR" ]; then
