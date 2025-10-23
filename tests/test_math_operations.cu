@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include "parrot.hpp"
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "test_common.hpp"

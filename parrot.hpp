@@ -43,7 +43,6 @@
 #include <cstdint>
 #include <ctime>
 
-#include <cuda/std/iterator>
 #include <initializer_list>
 #include <iomanip>
 #include <iostream>
@@ -57,6 +56,10 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include "cuda/std/__functional/identity.h"
+#include "cuda/std/__iterator/iterator_traits.h"
+#include "thrust/detail/fill.inl"
+#include "thrust/detail/vector_base.h"
 #include "thrustx.hpp"
 
 namespace parrot {
@@ -729,7 +732,7 @@ class fusion_array {
       Iterator>::value_type;
 
     // Storage accessor for composite storage management
-    [[nodiscard]] const std::shared_ptr<void> &storage() const {
+    [[nodiscard]] auto storage() const -> const std::shared_ptr<void> & {
         return _owned_storage;
     }
 
@@ -859,7 +862,7 @@ class fusion_array {
     explicit fusion_array(T value)
       : _begin(thrust::make_constant_iterator(value)),
         _end(thrust::make_constant_iterator(value) + 1),
-        _shape{},  // Scalar has empty shape (rank 0)
+        // Scalar has empty shape (rank 0)
         _mask_range{},
         _mask_storage{} {
         static_assert(std::is_same_v<MaskIterator, no_mask_t>,
@@ -1432,7 +1435,7 @@ class fusion_array {
     template <int Axis = 0, typename T, typename BinaryOp>
     auto reduce(T init,
                 BinaryOp op,
-                std::integral_constant<int, Axis> axis = {}) const {
+                std::integral_constant<int, Axis> /*axis*/ = {}) const {
         using value_type = typename std::iterator_traits<Iterator>::value_type;
 
         if constexpr (Axis == 0) {
@@ -1489,7 +1492,8 @@ class fusion_array {
      * @return A fusion_array containing the maximum value(s)
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto maxr(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto maxr(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return reduce<Axis>(std::numeric_limits<value_type>::lowest(),
                             thrust::maximum<value_type>());
     }
@@ -1502,7 +1506,8 @@ class fusion_array {
      * @return A fusion_array containing the minimum value(s)
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto minr(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto minr(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return reduce<Axis>(std::numeric_limits<value_type>::max(),
                             thrust::minimum<value_type>());
     }
@@ -1515,7 +1520,8 @@ class fusion_array {
      * @return A fusion_array containing the sum of elements
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto sum(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto sum(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         if constexpr (has_mask) {
             // Apply mask first
             auto unmasked = _apply_mask_if_needed();
@@ -1534,7 +1540,8 @@ class fusion_array {
      * otherwise
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto any(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto any(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return reduce<Axis>(0, thrust::logical_or<int>());
     }
 
@@ -1547,7 +1554,8 @@ class fusion_array {
      * false otherwise
      */
     template <int Axis = 0, typename T = int>
-    [[nodiscard]] auto all(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto all(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return reduce<Axis>(1, thrust::logical_and<int>());
     }
 
@@ -1703,7 +1711,8 @@ class fusion_array {
      * @return A new fusion_array containing running OR of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto anys(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto anys(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return scan<Axis>(thrust::logical_or<value_type>());
     }
 
@@ -1716,7 +1725,8 @@ class fusion_array {
      * @return A new fusion_array containing running AND of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto alls(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto alls(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return scan<Axis>(thrust::logical_and<value_type>());
     }
 
@@ -1729,7 +1739,8 @@ class fusion_array {
      * @return A new fusion_array containing running minimum of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto mins(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto mins(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return scan<Axis>(thrust::minimum<value_type>());
     }
 
@@ -1742,7 +1753,8 @@ class fusion_array {
      * @return A new fusion_array containing running maximum of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto maxs(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto maxs(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return scan<Axis>(thrust::maximum<value_type>())._mark_sorted();
     }
 
@@ -1755,7 +1767,8 @@ class fusion_array {
      * @return A new fusion_array containing running sum of elements
      */
     template <int Axis = 0>
-    [[nodiscard]] auto sums(std::integral_constant<int, Axis> axis = {}) const {
+    [[nodiscard]] auto sums(
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return scan<Axis>(thrust::plus<value_type>());
     }
 
@@ -1769,7 +1782,7 @@ class fusion_array {
      */
     template <int Axis = 0>
     [[nodiscard]] auto prods(
-      std::integral_constant<int, Axis> axis = {}) const {
+      std::integral_constant<int, Axis> /*axis*/ = {}) const {
         return scan<Axis>(thrust::multiplies<value_type>());
     }
 
@@ -1788,7 +1801,8 @@ class fusion_array {
      * @see sums, prods, mins, maxs, anys, alls for common predefined scans
      */
     template <int Axis = 0, typename BinaryOp>
-    auto scan(BinaryOp op, std::integral_constant<int, Axis> axis = {}) const {
+    auto scan(BinaryOp op,
+              std::integral_constant<int, Axis> /*axis*/ = {}) const {
         if constexpr (Axis == 0) {
             int n = size();
             // Create a device vector to store the scan results
