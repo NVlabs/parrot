@@ -5,7 +5,7 @@ Parrot is a C++ library for fused array operations using CUDA/Thrust. It provide
 
 Compare examples from the CUDA C++ library :doc:`Thrust <parrot_v_thrust>`.
 
-Explore the code on `GitHub <https://github.com/NVlabs/parrot>`_. If you would like to contribue, please refer to the `contributing <https://github.com/NVlabs/parrot/blob/main/CONTRIBUTING.md>`_ and `building <https://github.com/NVlabs/parrot/blob/main/BUILDING.md>`_ guides.
+Explore the code on `GitHub <https://github.com/NVlabs/parrot>`_. If you would like to contribute, please refer to the `contributing <https://github.com/NVlabs/parrot/blob/main/CONTRIBUTING.md>`_ and `building <https://github.com/NVlabs/parrot/blob/main/BUILDING.md>`_ guides.
 
 Features
 ~~~~~~~~
