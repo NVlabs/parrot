@@ -20,6 +20,8 @@ import argparse
 import os
 import re
 import subprocess
+from io import BytesIO
+from urllib.request import urlopen
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -142,13 +144,14 @@ def create_stacked_bar_chart(data_frames, labels, chart_name, export_html):
         # Add logo image
         for name in IMGS:
             if name in labels[i]:
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                assets_dir = os.path.join(script_dir, "assets")
-                image_file = os.path.join(assets_dir, f"{name}.png")
-                if os.path.exists(image_file):
+                image_url = f"https://raw.githubusercontent.com/codereport/parrot-cpp-extra/main/profiling/assets/{name}.png"
+                try:
+                    with urlopen(image_url) as response:
+                        image_data = response.read()
+                    img = Image.open(BytesIO(image_data))
                     fig.add_layout_image(
                         dict(
-                            source=Image.open(image_file),
+                            source=img,
                             xref="x",
                             yref="paper",
                             x=labels[i],
@@ -163,6 +166,8 @@ def create_stacked_bar_chart(data_frames, labels, chart_name, export_html):
                             yanchor="bottom",
                         )
                     )
+                except Exception as e:
+                    print(f"Warning: Could not load image for {name}: {e}")
                 break
 
     fig.update_layout(
