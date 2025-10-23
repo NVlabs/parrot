@@ -290,7 +290,11 @@ run_clang_tidy() {
         EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=$include_path"
     done
     
+    # Add CUDA-specific flags to avoid false positive errors
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=--no-cuda-version-check"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Xclang"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-fcuda-allow-variadic-functions"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Wno-unknown-cuda-version"
     
     # Add fix mode if enabled
     FIX_ARGS=""
