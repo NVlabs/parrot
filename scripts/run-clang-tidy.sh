@@ -88,11 +88,29 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check if clang-tidy is installed
-if ! command -v clang-tidy &> /dev/null; then
+# Find the best clang-tidy installation (prefer newer versions)
+CLANG_TIDY=""
+
+# First try Homebrew (usually newer - LLVM 18+)
+if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
+    CLANG_TIDY="/home/linuxbrew/.linuxbrew/bin/clang-tidy"
+    echo "Using Homebrew clang-tidy: $($CLANG_TIDY --version | head -1)"
+# Try system clang-tidy as fallback
+elif command -v clang-tidy &> /dev/null; then
+    CLANG_TIDY="clang-tidy"
+    CLANG_VERSION=$(clang-tidy --version | head -1)
+    echo "Using system clang-tidy: $CLANG_VERSION"
+    
+    # Warn if using old version
+    if echo "$CLANG_VERSION" | grep -qE "version (1[0-4]|[0-9])\\."; then
+        echo "⚠️  WARNING: Detected clang-tidy version 14 or older."
+        echo "    LLVM 14 has limited CUDA support and may report false errors."
+        echo "    Consider installing LLVM 18+: brew install llvm"
+    fi
+else
     echo "Error: clang-tidy is not installed. Please install it first."
-    echo "On Ubuntu/Debian: sudo apt-get install clang-tidy"
-    echo "On macOS: brew install llvm (and make sure it's in your PATH)"
+    echo "Recommended: brew install llvm (for LLVM 18+)"
+    echo "Alternative: sudo apt-get install clang-tidy"
     exit 1
 fi
 
@@ -308,12 +326,12 @@ run_clang_tidy() {
     
     # Run clang-tidy, excluding system, CCCL, and doctest headers from analysis
     # Only analyze headers in the project root
-    clang-tidy -config-file="$PROJECT_ROOT/.clang-tidy-cuda" \
-               -header-filter="^$PROJECT_ROOT/(?!build/).*\.(hpp|h|cuh)$" \
-               -line-filter="[{'name':'$file','lines':[[1,$line_count]]}]" \
-               $EXTRA_ARGS_STRING \
-               $FIX_ARGS \
-               "$file"
+    "$CLANG_TIDY" -config-file="$PROJECT_ROOT/.clang-tidy-cuda" \
+                  -header-filter="^$PROJECT_ROOT/(?!build/).*\.(hpp|h|cuh)$" \
+                  -line-filter="[{'name':'$file','lines':[[1,$line_count]]}]" \
+                  $EXTRA_ARGS_STRING \
+                  $FIX_ARGS \
+                  "$file"
     
     local exit_code=${PIPESTATUS[0]}
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 1 ]; then
