@@ -45,6 +45,12 @@ jobs:
       
     - name: Verify clang-tidy installation
       run: |
+        # Prefer Homebrew clang-tidy (newer version with better CUDA support)
+        if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+          echo "Using Homebrew clang-tidy"
+        fi
+        
         if ! command -v clang-tidy &> /dev/null; then
           echo "Error: clang-tidy is not installed on the self-hosted runner"
           echo "Please install it using one of the following methods:"
@@ -87,10 +93,18 @@ jobs:
         
     - name: Run clang-tidy on parrot.hpp
       run: |
+        # Ensure Homebrew clang-tidy is in PATH
+        if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+        fi
         bash scripts/run-clang-tidy.sh parrot.hpp
         
     - name: Run clang-tidy on all test files
       run: |
+        # Ensure Homebrew clang-tidy is in PATH
+        if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+        fi
         # Run clang-tidy with parallel jobs for speed
         bash scripts/run-clang-tidy.sh tests/*.cu
         
