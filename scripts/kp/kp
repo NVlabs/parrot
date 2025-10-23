@@ -173,7 +173,6 @@ def create_stacked_bar_chart(data_frames, labels, chart_name, export_html):
     fig.update_layout(
         barmode="stack",
         title=f"CUDA Kernel Profiling ({chart_name})",
-        xaxis_title="Python File",
         yaxis_title="Total Time (ns)",
         hovermode="x",
         showlegend=False,
