@@ -40,7 +40,7 @@ Quick Start
 **Performance Comparison of Softmax:**
 
 .. raw:: html
-   :file: _static/profiling/softmax.html
+   :file: _static/profiling/softmax_mini.html
 
 For a full screen version, click `here <_static/profiling/softmax.html>`_.
 

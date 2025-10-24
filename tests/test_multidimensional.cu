@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include <initializer_list>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -437,12 +438,12 @@ TEST_CASE("ParrotTest - NestedMatrixSingleElementTest") {
 TEST_CASE("ParrotTest - NestedMatrixInvalidTest") {
     // Empty nested list - need explicit type since compiler can't deduce from
     // empty list
-    std::initializer_list<std::initializer_list<int>> empty_nested{};
+    std::initializer_list<std::initializer_list<int>> const empty_nested{};
     CHECK_THROWS_AS(parrot::matrix(empty_nested), std::invalid_argument);
 
     // Empty inner list - need explicit type since compiler can't deduce from
     // empty inner list
-    std::initializer_list<std::initializer_list<int>> empty_inner{{}};
+    std::initializer_list<std::initializer_list<int>> const empty_inner{{}};
     CHECK_THROWS_AS(parrot::matrix(empty_inner), std::invalid_argument);
 
     // Mismatched row lengths
