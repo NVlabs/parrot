@@ -1181,7 +1181,7 @@ class fusion_array {
      * @return A new fusion_array containing 1 where adjacent elements differ,
      * 0 otherwise
      */
-    [[nodiscard]] auto differ() const { return map_adj(neq{}); }
+    [[nodiscard]] auto differ() const { return map_adj(parrot::neq{}); }
 
     /**
      * @brief Compute differences between adjacent elements
