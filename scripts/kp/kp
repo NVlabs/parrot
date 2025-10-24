@@ -20,6 +20,9 @@ import argparse
 import os
 import re
 import subprocess
+import time
+from io import BytesIO
+from urllib.request import urlopen
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -28,8 +31,7 @@ from PIL import Image
 from plotly.colors import qualitative
 from tqdm import tqdm
 
-IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda"]
-
+IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda", "arrayfire"]
 
 def remove_matching_angle_brackets(text, brackets):
     result = []
@@ -94,6 +96,38 @@ def create_stacked_bar_chart(data_frames, labels, chart_name, export_html):
     )
     data_frames, labels = zip(*sorted_data)
 
+    # Generate full version
+    fig_full = _create_figure(
+        data_frames,
+        labels,
+        chart_name,
+        hoverlabel_size=30,
+        show_annotations=True,
+        top_margin=100,
+    )
+
+    if export_html:
+        # Export full version
+        pio.write_html(fig_full, file=f"{chart_name}_full.html", auto_open=False)
+
+        # Generate and export mini version
+        fig_mini = _create_figure(
+            data_frames,
+            labels,
+            chart_name,
+            hoverlabel_size=12,
+            show_annotations=False,
+            top_margin=75,
+        )
+        pio.write_html(fig_mini, file=f"{chart_name}_mini.html", auto_open=False)
+
+    fig_full.show()
+
+
+def _create_figure(
+    data_frames, labels, chart_name, hoverlabel_size, show_annotations, top_margin
+):
+    """Helper function to create a figure with specific styling parameters."""
     fig = go.Figure()
     totals = []
     instance_counts = []
@@ -112,7 +146,7 @@ def create_stacked_bar_chart(data_frames, labels, chart_name, export_html):
                         x=[label],
                         y=[row["Total Time (ns)"] / div_factor],
                         hoverinfo="text",
-                        hoverlabel=dict(font_size=30),
+                        hoverlabel=dict(font_size=hoverlabel_size),
                         text=(
                             f"{row['Name']} "
                             f"({row['Total Time (ns)']} ns | {row['Instances']})"
@@ -123,32 +157,37 @@ def create_stacked_bar_chart(data_frames, labels, chart_name, export_html):
 
     max_total = max(totals)
 
-    for i, (total, count) in enumerate(zip(totals, instance_counts)):
-        fig.add_annotation(
-            x=labels[i],
-            y=total,
-            text=f"Total: {total:,} Kernels: {count}",
-            showarrow=True,
-            ax=0,
-            ay=-40,
-            font=dict(size=12, color="black"),
-            align="center",
-            bgcolor="rgba(255, 255, 255, 0.8)",
-            borderpad=5,
-            bordercolor="black",
-            borderwidth=2,
-        )
+    if show_annotations:
+        for i, (total, count) in enumerate(zip(totals, instance_counts)):
+            fig.add_annotation(
+                x=labels[i],
+                y=total,
+                text=f"Total: {total:,} Kernels: {count}",
+                showarrow=True,
+                ax=0,
+                ay=-40,
+                font=dict(size=12, color="black"),
+                align="center",
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                borderpad=5,
+                bordercolor="black",
+                borderwidth=2,
+            )
 
-        # Add logo image
+    # Add logo images
+    for i, (total, count) in enumerate(zip(totals, instance_counts)):
         for name in IMGS:
             if name in labels[i]:
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                assets_dir = os.path.join(script_dir, "assets")
-                image_file = os.path.join(assets_dir, f"{name}.png")
-                if os.path.exists(image_file):
+                # Add cache-busting parameter to force fresh image download
+                cache_buster = int(time.time())
+                image_url = f"https://raw.githubusercontent.com/codereport/parrot-cpp-extra/main/profiling/assets/{name}.png?cb={cache_buster}"
+                try:
+                    with urlopen(image_url) as response:
+                        image_data = response.read()
+                    img = Image.open(BytesIO(image_data))
                     fig.add_layout_image(
                         dict(
-                            source=Image.open(image_file),
+                            source=img,
                             xref="x",
                             yref="paper",
                             x=labels[i],
@@ -163,23 +202,28 @@ def create_stacked_bar_chart(data_frames, labels, chart_name, export_html):
                             yanchor="bottom",
                         )
                     )
+                except Exception as e:
+                    print(f"Warning: Could not load image for {name}: {e}")
                 break
+
+    # Set smaller margins for mini version
+    margin_settings = (
+        dict(t=top_margin, l=60, r=40, b=60)
+        if not show_annotations
+        else dict(t=top_margin)
+    )
 
     fig.update_layout(
         barmode="stack",
         title=f"CUDA Kernel Profiling ({chart_name})",
-        xaxis_title="Python File",
         yaxis_title="Total Time (ns)",
         hovermode="x",
         showlegend=False,
         bargap=0.2,
-        margin=dict(t=100),  # Increase top margin to accommodate logos
+        margin=margin_settings,
     )
 
-    if export_html:
-        pio.write_html(fig, file=f"{chart_name}.html", auto_open=False)
-
-    fig.show()
+    return fig
 
 
 def run_nsys(file_path, output_dir, verbose):

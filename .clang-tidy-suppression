@@ -1,0 +1,24 @@
+# Suppression file for clang-tidy warnings
+
+# Suppress warnings about CUDA-specific qualifiers
+__host__
+__device__
+__global__
+__shared__
+__constant__
+
+# Suppress warnings about thrust::tuple
+thrust::tuple
+thrust::get
+thrust::make_tuple
+thrust::make_pair
+thrust::pair
+
+# Suppress CUDA-specific warnings
+threadIdx
+blockIdx
+blockDim
+gridDim
+syncthreads
+atomicAdd
+clock 
