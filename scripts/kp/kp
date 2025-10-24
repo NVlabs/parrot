@@ -31,7 +31,7 @@ from PIL import Image
 from plotly.colors import qualitative
 from tqdm import tqdm
 
-IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda"]
+IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda", "fire"]
 
 
 def remove_matching_angle_brackets(text, brackets):
