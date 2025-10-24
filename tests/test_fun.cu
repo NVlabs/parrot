@@ -271,3 +271,22 @@ TEST_CASE("Team Champion") {
         CHECK_EQ(team_champion(arr), 2);
     }
 }
+
+auto check_order(auto ints) {  //
+    return ints.sort().neq(ints).where() - 1;
+}
+
+TEST_CASE("Check Order") {
+    SUBCASE("Example 1") {
+        auto ints = parrot::array({5, 2, 4, 3, 1});
+        check_match_eq(check_order(ints), parrot::array({0, 2, 3, 4}));
+    }
+    SUBCASE("Example 2") {
+        auto ints = parrot::array({1, 2, 1, 1, 3});
+        check_match_eq(check_order(ints), parrot::array({1, 3}));
+    }
+    SUBCASE("Example 3") {
+        auto ints = parrot::array({3, 1, 3, 2, 3});
+        check_match_eq(check_order(ints), parrot::array({0, 1, 3}));
+    }
+}
