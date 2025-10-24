@@ -33,7 +33,6 @@ from tqdm import tqdm
 
 IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda", "arrayfire"]
 
-
 def remove_matching_angle_brackets(text, brackets):
     result = []
     stack = []
