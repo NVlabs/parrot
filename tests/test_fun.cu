@@ -290,3 +290,37 @@ TEST_CASE("Check Order") {
         check_match_eq(check_order(ints), parrot::array({0, 1, 3}));
     }
 }
+
+auto peak_positions(auto ints) {
+    return ints.prepend(0)
+      .append(0)
+      .deltas()
+      .sign()
+      .deltas()
+      .eq(-2)
+      .where()
+      .minus(1);
+}
+
+TEST_CASE("Peak Positions") {
+    SUBCASE("Example 1") {
+        auto ints = parrot::array({1, 3, 2});
+        check_match_eq(peak_positions(ints), parrot::array({1}));
+    }
+    SUBCASE("Example 2") {
+        auto ints = parrot::array({2, 4, 6, 5, 3});
+        check_match_eq(peak_positions(ints), parrot::array({2}));
+    }
+    SUBCASE("Example 3") {
+        auto ints = parrot::array({1, 2, 3, 2, 4, 1});
+        check_match_eq(peak_positions(ints), parrot::array({2, 4}));
+    }
+    SUBCASE("Example 4") {
+        auto ints = parrot::array({5, 3, 1});
+        check_match_eq(peak_positions(ints), parrot::array({0}));
+    }
+    SUBCASE("Example 5") {
+        auto ints = parrot::array({1, 5, 1, 5, 1, 5, 1});
+        check_match_eq(peak_positions(ints), parrot::array({1, 3, 5}));
+    }
+}
