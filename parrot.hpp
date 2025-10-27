@@ -49,6 +49,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -709,13 +710,14 @@ class fusion_array {
               result_vec = std::make_shared<thrust::device_vector<value_type>>(
                 n, thrust::default_init);
 
-            auto end = thrust::copy_if(_begin,
-                                       _end,
-                                       _mask_range.first,
-                                       result_vec->begin(),
-                                       cuda::std::identity{});
+            auto result_end = thrust::copy_if(_begin,
+                                              _end,
+                                              _mask_range.first,
+                                              result_vec->begin(),
+                                              cuda::std::identity{});
 
-            int result_size = cuda::std::distance(result_vec->begin(), end);
+            int result_size = cuda::std::distance(result_vec->begin(),
+                                                  result_end);
 
             return fusion_array<
               typename thrust::device_vector<value_type>::iterator,
@@ -934,10 +936,11 @@ class fusion_array {
         auto const n = std::max(size(), value.size());
         // Prioritize higher-dimensional arrays to preserve shape information
         // If ranks are equal, prefer the larger array by size
-        auto const shape = (rank() < value.rank()) ||
-                               (rank() == value.rank() && size() < value.size())
-                             ? value.shape()
-                             : _shape;
+        auto const result_shape = (rank() < value.rank()) ||
+                                      (rank() == value.rank() &&
+                                       size() < value.size())
+                                    ? value.shape()
+                                    : _shape;
 
         auto zip_begin = thrust::make_zip_iterator(
           thrust::make_tuple(_begin, value.begin()));
@@ -963,7 +966,7 @@ class fusion_array {
           thrust::make_transform_iterator(zip_begin, adapter),
           thrust::make_transform_iterator(zip_end, adapter),
           composite_storage,
-          shape);
+          result_shape);
     }
 
     // Map operation with a scalar value
@@ -1693,9 +1696,11 @@ class fusion_array {
      */
     template <typename IndexIterator>
     auto gather(const fusion_array<IndexIterator> &indices) const {
-        auto begin = thrust::make_permutation_iterator(_begin, indices.begin());
-        auto end   = thrust::make_permutation_iterator(_begin, indices.end());
-        return fusion_array<decltype(begin)>(begin, end);
+        auto gather_begin = thrust::make_permutation_iterator(_begin,
+                                                              indices.begin());
+        auto gather_end   = thrust::make_permutation_iterator(_begin,
+                                                            indices.end());
+        return fusion_array<decltype(gather_begin)>(gather_begin, gather_end);
     }
 
     /**
@@ -1845,7 +1850,6 @@ class fusion_array {
                   "Cannot perform row-wise scan on array with rank < 2");
             }
 
-            int num_rows = _shape[0];
             int num_cols = _shape[1];
 
             // Create a counting iterator and transform it to row indices
@@ -2006,8 +2010,8 @@ class fusion_array {
      * @see cycle
      */
     [[nodiscard]] auto reshape(std::initializer_list<int> new_shape) const {
-        int total_size = 1;
-        for (auto dim : new_shape) { total_size *= dim; }
+        int total_size = std::accumulate(
+          new_shape.begin(), new_shape.end(), 1, std::multiplies<int>());
 
         int current_size = size();
 
@@ -2041,8 +2045,8 @@ class fusion_array {
      * @see reshape
      */
     [[nodiscard]] auto cycle(std::initializer_list<int> new_shape) const {
-        int total_size = 1;
-        for (auto dim : new_shape) { total_size *= dim; }
+        int total_size = std::accumulate(
+          new_shape.begin(), new_shape.end(), 1, std::multiplies<int>());
 
         int current_size = size();
 
@@ -2085,8 +2089,8 @@ class fusion_array {
         if (n <= 0) { throw std::invalid_argument("repeat: n must be > 0"); }
 
         // Create a constant iterator to repeat the scalar value
-        auto value          = *_begin;  // Get the scalar value
-        auto repeated_begin = thrust::make_constant_iterator(value);
+        auto scalar_value   = *_begin;  // Get the scalar value
+        auto repeated_begin = thrust::make_constant_iterator(scalar_value);
 
         return fusion_array<decltype(repeated_begin)>(
           repeated_begin, repeated_begin + n, nullptr);
@@ -2304,10 +2308,9 @@ class fusion_array {
             unmasked.print(os, delimiter);
             return unmasked;
         } else {
-            int n = size();
-
             if (_shape.size() <= 1) {
                 // 1D array or scalar
+                int n         = size();
                 int max_width = 1;
                 // Calculate max width first
                 for (auto it = _begin; it != _end; ++it) {
@@ -2817,8 +2820,8 @@ auto matrix(T value, std::initializer_list<int> shape) {
           "matrix: shape must have exactly 2 dimensions");
     }
 
-    auto total_size = 1;
-    for (auto dim : shape) { total_size *= dim; }
+    auto total_size = std::accumulate(
+      shape.begin(), shape.end(), 1, std::multiplies<int>());
 
     return scalar(value).repeat(total_size).reshape(shape);
 }
@@ -2847,11 +2850,12 @@ auto matrix(std::initializer_list<std::initializer_list<T>> nested_list) {
     }
 
     // Validate that all rows have the same length
-    for (const auto &row : nested_list) {
-        if (static_cast<int>(row.size()) != cols) {
-            throw std::invalid_argument(
-              "matrix: all inner lists must have the same length");
-        }
+    if (std::any_of(
+          nested_list.begin(), nested_list.end(), [cols](const auto &row) {
+              return static_cast<int>(row.size()) != cols;
+          })) {
+        throw std::invalid_argument(
+          "matrix: all inner lists must have the same length");
     }
 
     // Flatten the nested data into a single vector (row-major order)
@@ -2859,7 +2863,7 @@ auto matrix(std::initializer_list<std::initializer_list<T>> nested_list) {
     flattened_data.reserve(rows * cols);
 
     for (const auto &row : nested_list) {
-        for (const auto &element : row) { flattened_data.push_back(element); }
+        std::copy(row.begin(), row.end(), std::back_inserter(flattened_data));
     }
 
     // Create the array and reshape it to the matrix dimensions
