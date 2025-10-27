@@ -272,6 +272,8 @@ TEST_CASE("Team Champion") {
     }
 }
 
+// Check Order - PWC 307.1
+
 auto check_order(auto ints) {  //
     return ints.sort().neq(ints).where() - 1;
 }
@@ -290,6 +292,8 @@ TEST_CASE("Check Order") {
         check_match_eq(check_order(ints), parrot::array({0, 1, 3}));
     }
 }
+
+// Peak Positions - PWC 345.1
 
 auto peak_positions(auto ints) {
     return ints.prepend(0)
