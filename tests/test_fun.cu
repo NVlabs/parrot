@@ -271,3 +271,60 @@ TEST_CASE("Team Champion") {
         CHECK_EQ(team_champion(arr), 2);
     }
 }
+
+// Check Order - PWC 307.1
+
+auto check_order(auto ints) {  //
+    return ints.sort().neq(ints).where() - 1;
+}
+
+TEST_CASE("Check Order") {
+    SUBCASE("Example 1") {
+        auto ints = parrot::array({5, 2, 4, 3, 1});
+        check_match_eq(check_order(ints), parrot::array({0, 2, 3, 4}));
+    }
+    SUBCASE("Example 2") {
+        auto ints = parrot::array({1, 2, 1, 1, 3});
+        check_match_eq(check_order(ints), parrot::array({1, 3}));
+    }
+    SUBCASE("Example 3") {
+        auto ints = parrot::array({3, 1, 3, 2, 3});
+        check_match_eq(check_order(ints), parrot::array({0, 1, 3}));
+    }
+}
+
+// Peak Positions - PWC 345.1
+
+auto peak_positions(auto ints) {
+    return ints.prepend(0)
+      .append(0)
+      .deltas()
+      .sign()
+      .deltas()
+      .eq(-2)
+      .where()
+      .minus(1);
+}
+
+TEST_CASE("Peak Positions") {
+    SUBCASE("Example 1") {
+        auto ints = parrot::array({1, 3, 2});
+        check_match_eq(peak_positions(ints), parrot::array({1}));
+    }
+    SUBCASE("Example 2") {
+        auto ints = parrot::array({2, 4, 6, 5, 3});
+        check_match_eq(peak_positions(ints), parrot::array({2}));
+    }
+    SUBCASE("Example 3") {
+        auto ints = parrot::array({1, 2, 3, 2, 4, 1});
+        check_match_eq(peak_positions(ints), parrot::array({2, 4}));
+    }
+    SUBCASE("Example 4") {
+        auto ints = parrot::array({5, 3, 1});
+        check_match_eq(peak_positions(ints), parrot::array({0}));
+    }
+    SUBCASE("Example 5") {
+        auto ints = parrot::array({1, 5, 1, 5, 1, 5, 1});
+        check_match_eq(peak_positions(ints), parrot::array({1, 3, 5}));
+    }
+}
