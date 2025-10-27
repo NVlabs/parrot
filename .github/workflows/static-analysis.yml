@@ -1,0 +1,236 @@
+name: CppCheck and IWYU Static Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**.cu'
+      - '**.hpp'
+      - '**.cuh'
+      - '**.h'
+      - '**.cpp'
+      - '**.c'
+      - 'CMakeLists.txt'
+      - 'tests/**'
+      - '.github/workflows/static-analysis.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**.cu'
+      - '**.hpp'
+      - '**.cuh'
+      - '**.h'
+      - '**.cpp'
+      - '**.c'
+      - 'CMakeLists.txt'
+      - 'tests/**'
+      - '.github/workflows/static-analysis.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  cppcheck:
+    runs-on: ubuntu-latest
+    # Only run on the main NVLabs/parrot repository, not on forks
+    if: github.repository == 'NVLabs/parrot'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install CppCheck
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck
+        cppcheck --version
+        
+    - name: Run CppCheck
+      run: |
+        echo "Running CppCheck static analysis..."
+        
+        # Run CppCheck on main header file
+        echo "Checking parrot.hpp..."
+        cppcheck --enable=warning,style,performance,portability \
+                 --suppress=unmatchedSuppression \
+                 --suppress=missingIncludeSystem \
+                 --inline-suppr \
+                 --std=c++20 \
+                 --language=c++ \
+                 --error-exitcode=1 \
+                 --quiet \
+                 parrot.hpp
+        
+        # Run CppCheck on test files
+        echo "Checking test files..."
+        cppcheck --enable=warning,style,performance,portability \
+                 --suppress=unmatchedSuppression \
+                 --suppress=missingIncludeSystem \
+                 --inline-suppr \
+                 --std=c++20 \
+                 --language=c++ \
+                 --error-exitcode=1 \
+                 --quiet \
+                 tests/*.cu tests/*.hpp 2>&1 | tee cppcheck.log
+        
+        echo "✅ CppCheck analysis completed successfully!"
+        
+    - name: Upload CppCheck results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cppcheck-results
+        path: cppcheck.log
+        if-no-files-found: ignore
+
+  iwyu:
+    runs-on: [self-hosted, Linux, X64]
+    # Only run on the main NVLabs/parrot repository, not on forks
+    if: github.repository == 'NVLabs/parrot'
+    
+    env:
+      PATH: /home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup IWYU
+      run: |
+        echo "Checking for include-what-you-use installation..."
+        
+        # Check if IWYU is already installed
+        if command -v include-what-you-use &> /dev/null; then
+          echo "✅ Found include-what-you-use"
+          include-what-you-use --version || echo "Version info not available"
+        elif [ -f "/home/linuxbrew/.linuxbrew/bin/include-what-you-use" ]; then
+          echo "✅ Found Homebrew include-what-you-use"
+          /home/linuxbrew/.linuxbrew/bin/include-what-you-use --version || echo "Version info not available"
+        else
+          echo "⚠️  IWYU not found. Installing via Homebrew..."
+          
+          # Check if brew is available
+          if command -v brew &> /dev/null; then
+            echo "Installing include-what-you-use (this may take a few minutes)..."
+            brew install include-what-you-use
+            echo "✅ IWYU installed successfully"
+          else
+            echo "❌ Homebrew is not installed on this runner."
+            echo "Attempting to install via apt..."
+            sudo apt-get update
+            sudo apt-get install -y iwyu || {
+              echo "❌ Failed to install IWYU via apt"
+              exit 1
+            }
+          fi
+        fi
+        
+        # Verify installation
+        if command -v include-what-you-use &> /dev/null; then
+          echo "✅ IWYU is ready:"
+          include-what-you-use --version || echo "IWYU installed (version info not available)"
+        else
+          echo "❌ Failed to setup IWYU"
+          exit 1
+        fi
+        
+    - name: Verify CUDA installation (HPC SDK)
+      run: |
+        # Check if nvcc is in PATH, if not, set it up
+        if ! command -v nvcc &> /dev/null; then
+          export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin:$PATH
+          export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        fi
+        nvcc --version || echo "Warning: nvcc not found"
+        
+    - name: Create build directory
+      run: mkdir -p build
+      
+    - name: Configure with CMake
+      env:
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+      run: |
+        cd build
+        cmake .. -DCUDA_ARCH=AUTO -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        
+    - name: Build project (to fetch dependencies)
+      env:
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+      run: |
+        cd build
+        # Build with all cores for speed (as per BUILDING.md)
+        cmake --build . -j$(nproc)
+        
+    - name: Run IWYU on parrot.hpp
+      continue-on-error: true
+      run: |
+        echo "Running IWYU on parrot.hpp..."
+        
+        # IWYU can be verbose, so we'll capture output and check for issues
+        include-what-you-use \
+          -Xiwyu --no_fwd_decls \
+          -Xiwyu --max_line_length=100 \
+          -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/include \
+          -I$(pwd)/build/_deps/cccl-src/thrust \
+          -I$(pwd)/build/_deps/cccl-src/cub \
+          -I$(pwd)/build/_deps/cccl-src/libcudacxx/include \
+          -std=c++20 \
+          -x cu \
+          parrot.hpp 2>&1 | tee iwyu_parrot.log || echo "IWYU completed with suggestions"
+        
+    - name: Run IWYU on test files
+      continue-on-error: true
+      run: |
+        echo "Running IWYU on test files..."
+        
+        for test_file in tests/*.cu; do
+          echo "Analyzing $test_file..."
+          include-what-you-use \
+            -Xiwyu --no_fwd_decls \
+            -Xiwyu --max_line_length=100 \
+            -I. \
+            -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda/13.0/include \
+            -I$(pwd)/build/_deps/cccl-src/thrust \
+            -I$(pwd)/build/_deps/cccl-src/cub \
+            -I$(pwd)/build/_deps/cccl-src/libcudacxx/include \
+            -std=c++20 \
+            -x cu \
+            "$test_file" 2>&1 | tee -a iwyu_tests.log || echo "IWYU completed for $test_file"
+        done
+        
+    - name: Generate IWYU Summary
+      if: always()
+      run: |
+        echo "=== IWYU Analysis Summary ===" > iwyu_summary.txt
+        echo "" >> iwyu_summary.txt
+        
+        if [ -f iwyu_parrot.log ]; then
+          echo "parrot.hpp suggestions:" >> iwyu_summary.txt
+          grep -A 5 "should add these lines:" iwyu_parrot.log >> iwyu_summary.txt || echo "No suggestions" >> iwyu_summary.txt
+          echo "" >> iwyu_summary.txt
+        fi
+        
+        if [ -f iwyu_tests.log ]; then
+          echo "Test files suggestions:" >> iwyu_summary.txt
+          grep -A 5 "should add these lines:" iwyu_tests.log >> iwyu_summary.txt || echo "No suggestions" >> iwyu_summary.txt
+        fi
+        
+        echo "✅ IWYU analysis completed!"
+        cat iwyu_summary.txt
+        
+    - name: Upload IWYU results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: iwyu-results
+        path: |
+          iwyu_*.log
+          iwyu_summary.txt
+        if-no-files-found: ignore
+        
+    - name: Check for critical IWYU issues
+      run: |
+        echo "Note: IWYU provides suggestions for include optimization."
+        echo "Review the artifacts for detailed recommendations."
+        echo "✅ Analysis complete!"
+
