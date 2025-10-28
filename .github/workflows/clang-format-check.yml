@@ -1,4 +1,4 @@
-name: C++ Code Format Check
+name: Clang-Format Check
 
 on:
   push:
