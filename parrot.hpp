@@ -1225,8 +1225,8 @@ class fusion_array {
     [[nodiscard]] auto exp() const { return map(exp_functor<value_type>()); }
 
     /**
-     * @brief Check if each element is odd
-     * @return A new fusion_array containing 1 for odd elements, 0 for even
+     * @brief Calculate negative of each element
+     * @return A new fusion_array with negative values
      */
     [[nodiscard]] auto neg() const { return map(thrust::negate<value_type>()); }
 
