@@ -33,6 +33,7 @@ from tqdm import tqdm
 
 IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda", "arrayfire"]
 
+
 def remove_matching_angle_brackets(text, brackets):
     result = []
     stack = []
@@ -240,14 +241,25 @@ def run_nsys(file_path, output_dir, verbose):
     if file_path.endswith(".py"):
         command += ["python"]
     command += [file_path]
+
+    nsys_rep = output_name + ".nsys-rep"
+    sqlite_file = output_name + ".sqlite"
+    qdstrm_file = output_name + ".qdstrm"
+
     try:
         if verbose:
             subprocess.run(command, check=True)
         else:
-            subprocess.run(command, capture_output=True, text=True)
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Error running nsys on {file_path}: {e}")
-    return output_name + ".nsys-rep", output_name + ".sqlite"
+        # Clean up any partial files that nsys might have created
+        partial_files = [nsys_rep, sqlite_file, qdstrm_file]
+        for file in partial_files:
+            if os.path.exists(file):
+                os.remove(file)
+        return None, None
+    return nsys_rep, sqlite_file
 
 
 def generate_csv(nsys_rep, base_name, verbose):
@@ -298,6 +310,11 @@ def run_profiler(args):
         if args.verbose:
             print(f"✅ Processing {file}...")
         nsys_rep, sqlite_file = run_nsys(file_path, output_dir, args.verbose)
+
+        # Skip if profiling failed
+        if nsys_rep is None:
+            continue
+
         base_name = os.path.splitext(nsys_rep)[0]
         generate_csv(nsys_rep, base_name, args.verbose)
         clean_up([nsys_rep, sqlite_file])

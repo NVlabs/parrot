@@ -2742,6 +2742,7 @@ class fusion_array {
      auto operator> (auto const &arg) const { return this->gt(arg);    }
      auto operator>=(auto const &arg) const { return this->gte(arg);   }
      auto operator==(auto const &arg) const { return this->eq(arg);    }
+     auto operator!=(auto const &arg) const { return this->neq(arg);   }
      // auto operator%(auto const &arg) const { return this->mod(arg); } // TODO
     // clang-format on
 };
