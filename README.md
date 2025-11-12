@@ -147,10 +147,11 @@ ctest
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+uv venv
+uv pip install -r requirements.txt
 
 # Build docs
-cd script && ./build-docs.sh
+cd scripts && ./build-docs.sh
 ```
 
 ## 📁 Repository Structure
