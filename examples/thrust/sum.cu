@@ -18,5 +18,5 @@
 #include "parrot.hpp"
 
 int main() {
-    parrot::scalar(9999).repeat(100).sum().print();  //
+    parrot::scalar(9999).repeat(100).rand().sum().print();
 }
