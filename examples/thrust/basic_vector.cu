@@ -18,8 +18,20 @@
 #include "parrot.hpp"
 
 int main() {
-    parrot::array({14, 20, 38, 46})
-      .print()  // 14 20 38 46
-      .take(2)
-      .print();  // 14 20
+    parrot::array H({14, 20, 38, 46});
+    
+    std::cout << H.size() << std::endl; // 4
+    H.print();  // 14 20 38 46
+
+    H = H.take(2);
+    std::cout << H.size() << std::endl; // 2
+    H.print();  // 14 20
+
+    parrot::array D = H;
+
+    // TODO: not possible in parrot?
+    D[0] = 99;
+    D[1] = 88;
+
+    D.print();
 }
