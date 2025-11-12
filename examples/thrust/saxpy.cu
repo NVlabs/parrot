@@ -17,7 +17,7 @@
 
 #include "parrot.hpp"
 
-// TODO: saxpy_fast and saxpy_slow functions as arg passing example
+// todo: saxpy_fast and saxpy_slow functions as arg passing example
 
 int main() {
     auto x = parrot::array({1.0, 1.0, 1.0, 1.0});

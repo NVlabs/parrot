@@ -29,7 +29,7 @@ int main() {
 
     parrot::array D = H;
 
-    // TODO: not possible in parrot?
+    // todo: not possible in parrot?
     D[0] = 99;
     D[1] = 88;
 

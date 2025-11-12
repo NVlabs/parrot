@@ -19,7 +19,7 @@
 #include "parrot.hpp"
 
 int main() {
-    // TODO: average accross M samples
+    // todo: average accross M samples
     int M = 30000;
 
     // for M samples
