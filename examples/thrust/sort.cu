@@ -18,15 +18,41 @@
 #include "parrot.hpp"
 
 int main() {
-    auto const N = 10;
-    auto ints    = parrot::scalar(100).repeat(N).rand();
-    auto floats  = parrot::scalar(10.0).repeat(N).rand();
+    auto const N = 16;
 
     auto even_first = [] __host__ __device__(int x) { return x % 2; };
 
-    ints.sort().print();                           // sort integers
-    ints.sort_by(thrust::greater<int>()).print();  // sort integers descending
-    ints.sort_by_key(even_first).print();  // sort integers (user-defined)
-    floats.sort().print();                 // sort floats
-    floats.pairs(ints).sort().print();     // sort pairs
+    // sort integers
+    {
+        auto ints = parrot::scalar(89).repeat(N).rand().add(10);
+        ints.print().sort().print();
+    }
+    // sort integers descending
+    {
+        auto ints = parrot::scalar(89).repeat(N).rand().add(10);
+        ints.print().sort_by(thrust::greater<int>()).print();
+    }
+    // sort integers (user-defined)
+    {
+        auto ints = parrot::scalar(89).repeat(N).rand().add(10);
+        ints.print().sort_by_key(even_first).print();
+    }
+    // sort floats
+    {
+        auto floats  = parrot::scalar(17).repeat(N).rand().add(2.0f);
+        floats.print().sort().print();
+    }
+    // key value sorting
+    {
+        auto keys = parrot::scalar(89).repeat(N).rand().add(10);
+        // INFO: why is range 1 indexed, and have no overloads [min, max)...?
+        auto vals = parrot::range(N).minus(1); 
+        keys.pairs(vals).print().sort().print();
+    }
+    // key value sorting (descending)
+    {
+        auto keys = parrot::scalar(89).repeat(N).rand().add(10);
+        auto vals = parrot::range(N).minus(1);
+        keys.pairs(vals).print().sort_by(thrust::greater<int>()).print();
+    }
 }
