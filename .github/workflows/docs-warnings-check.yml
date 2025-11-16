@@ -1,0 +1,72 @@
+name: Documentation Warnings Check
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  check-docs-warnings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -r requirements.txt
+
+      - name: Generate comparison documentation
+        run: |
+          uv run docs/scripts/generate_comparisons.py
+
+      - name: Build documentation and check for warnings
+        id: build-docs
+        run: |
+          cd docs
+          # Capture both stdout and stderr, and save to a file
+          uv run make html 2>&1 | tee build_output.log
+          
+          # Check if there are any warnings in the output
+          # Look for common Sphinx/Breathe warning patterns
+          if grep -i "warning" build_output.log; then
+            echo "❌ Documentation build contains warnings!"
+            echo ""
+            echo "Warnings found:"
+            echo "==============="
+            grep -i "warning" build_output.log
+            echo ""
+            echo "Please fix the warnings above before merging."
+            exit 1
+          else
+            echo "✅ Documentation built successfully with no warnings!"
+            exit 0
+          fi
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-build-log
+          path: docs/build_output.log
+          retention-days: 7
+

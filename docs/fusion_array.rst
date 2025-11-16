@@ -94,7 +94,8 @@ Fused Operations
 
 .. _cp-fusion-array-map2:
 
-.. doxygenfunction:: parrot::fusion_array::map2(const fusion_array<OtherIterator> &value, BinaryFunctor binary_op) const
+.. doxygenfunction:: parrot::fusion_array::map2(const fusion_array<OtherIterator, OtherMaskIterator> &value, BinaryFunctor binary_op) const
+
 .. doxygenfunction:: parrot::fusion_array::map2(const T &value, BinaryFunctor binary_op) const
 
 .. _cp-fusion-array-add:
@@ -474,7 +475,9 @@ Parrot provides several convenient functions for creating fusion_array objects. 
 
 .. _cp-matrix-function:
 
-.. doxygenfunction:: parrot::matrix
+.. doxygenfunction:: parrot::matrix(T value, std::initializer_list<int> shape)
+
+.. doxygenfunction:: parrot::matrix(std::initializer_list<std::initializer_list<T>> nested_list)
 
 
 
