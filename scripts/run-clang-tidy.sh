@@ -308,6 +308,10 @@ run_clang_tidy() {
         EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=$include_path"
     done
     
+    # Add warning flags
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Wall"
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Werror"
+    
     # Add CUDA-specific flags to avoid false positive errors
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=--no-cuda-version-check"
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Xclang"

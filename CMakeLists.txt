@@ -166,6 +166,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Add compiler flags for warnings and errors
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler=-Wall,-Werror")
+
 # Add compiler timing flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftime-report")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --time")
@@ -177,11 +181,7 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --extended-lambda")
 # Include directories - prioritize CCCL over system CUB
 include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR})
 
-
-# Enable testing
-enable_testing()
-
-# Download and configure doctest
+# Download NVIDIA CCCL for latest CUB/Thrust
 include(FetchContent)
 
 # Set timeout and retry options for FetchContent
@@ -189,36 +189,12 @@ set(FETCHCONTENT_QUIET OFF)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 
 FetchContent_Declare(
-  doctest
-  GIT_REPOSITORY https://github.com/doctest/doctest.git
-  GIT_TAG v2.4.11
-  GIT_SHALLOW TRUE
-  TIMEOUT 30
-  UPDATE_COMMAND ""
-)
-
-# Download NVIDIA CCCL for latest CUB/Thrust
-FetchContent_Declare(
   cccl
   GIT_REPOSITORY https://github.com/NVIDIA/cccl.git
   GIT_TAG main # Use latest main branch for newest features
   GIT_SHALLOW TRUE
   TIMEOUT 60
 )
-
-# Make dependencies available with timeout handling
-message(STATUS "Downloading doctest... (this may take a moment)")
-FetchContent_GetProperties(doctest)
-if(NOT doctest_POPULATED)
-  FetchContent_Populate(doctest)
-  # Patch doctest CMakeLists.txt to use a modern CMake minimum version
-  file(READ "${doctest_SOURCE_DIR}/CMakeLists.txt" DOCTEST_CMAKE_CONTENT)
-  string(REGEX REPLACE "cmake_minimum_required\\(VERSION [0-9.]+\\)" 
-                       "cmake_minimum_required(VERSION 3.10)" 
-                       DOCTEST_CMAKE_CONTENT "${DOCTEST_CMAKE_CONTENT}")
-  file(WRITE "${doctest_SOURCE_DIR}/CMakeLists.txt" "${DOCTEST_CMAKE_CONTENT}")
-  add_subdirectory(${doctest_SOURCE_DIR} ${doctest_BINARY_DIR})
-endif()
 
 message(STATUS "Downloading NVIDIA CCCL... (this may take a moment)")
 FetchContent_MakeAvailable(cccl)
@@ -234,11 +210,52 @@ message(STATUS "Added CCCL include directories (highest priority): ${cccl_SOURCE
 # Use -isystem to suppress warnings and -idirafter to ensure system headers come after
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -isystem ${cccl_SOURCE_DIR} -isystem ${cccl_SOURCE_DIR}/cub -isystem ${cccl_SOURCE_DIR}/thrust -isystem ${cccl_SOURCE_DIR}/libcudacxx/include")
 
-# Create test directory if it doesn't exist
-file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+# Only build tests and examples when Parrot is the top-level project
+# This prevents tests from being built when Parrot is included as a dependency
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(PARROT_IS_TOP_LEVEL TRUE)
+else()
+    set(PARROT_IS_TOP_LEVEL FALSE)
+endif()
 
-# Add test executable with the new modular structure
-add_executable(parrot_tests tests/test_main.cu)
+# Allow users to override the default behavior
+option(PARROT_BUILD_TESTS "Build Parrot tests" ${PARROT_IS_TOP_LEVEL})
+option(PARROT_BUILD_EXAMPLES "Build Parrot examples" ${PARROT_IS_TOP_LEVEL})
+
+if(PARROT_BUILD_TESTS)
+    message(STATUS "Building Parrot tests")
+    
+    # Enable testing
+    enable_testing()
+    
+    # Download and configure doctest
+    FetchContent_Declare(
+      doctest
+      GIT_REPOSITORY https://github.com/doctest/doctest.git
+      GIT_TAG v2.4.11
+      GIT_SHALLOW TRUE
+      TIMEOUT 30
+      UPDATE_COMMAND ""
+    )
+    
+    message(STATUS "Downloading doctest... (this may take a moment)")
+    FetchContent_GetProperties(doctest)
+    if(NOT doctest_POPULATED)
+      FetchContent_Populate(doctest)
+      # Patch doctest CMakeLists.txt to use a modern CMake minimum version
+      file(READ "${doctest_SOURCE_DIR}/CMakeLists.txt" DOCTEST_CMAKE_CONTENT)
+      string(REGEX REPLACE "cmake_minimum_required\\(VERSION [0-9.]+\\)" 
+                           "cmake_minimum_required(VERSION 3.10)" 
+                           DOCTEST_CMAKE_CONTENT "${DOCTEST_CMAKE_CONTENT}")
+      file(WRITE "${doctest_SOURCE_DIR}/CMakeLists.txt" "${DOCTEST_CMAKE_CONTENT}")
+      add_subdirectory(${doctest_SOURCE_DIR} ${doctest_BINARY_DIR})
+    endif()
+    
+    # Create test directory if it doesn't exist
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+
+    # Add test executable with the new modular structure
+    add_executable(parrot_tests tests/test_main.cu)
 
 # Set CUDA options for the test executable
 set_target_properties(parrot_tests PROPERTIES 
@@ -345,8 +362,12 @@ add_test(NAME MultidimensionalTests COMMAND test_multidim)
 add_test(NAME IntegrationTests COMMAND test_integration)
 add_test(NAME Top10Tests COMMAND test_top10)
 add_test(NAME FunTests COMMAND test_fun)
+endif() # PARROT_BUILD_TESTS
 
-# Add starter examples as executables
+if(PARROT_BUILD_EXAMPLES)
+    message(STATUS "Building Parrot examples")
+    
+    # Add starter examples as executables
 file(GLOB STARTER_EXAMPLES "${CMAKE_CURRENT_SOURCE_DIR}/examples/starter/*.cu")
 foreach(example_path ${STARTER_EXAMPLES})
     get_filename_component(example_name ${example_path} NAME_WE)
@@ -358,6 +379,7 @@ foreach(example_path ${STARTER_EXAMPLES})
         CUDA_SEPARABLE_COMPILATION ON)
     target_compile_options(${target_name} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
 endforeach()
+endif() # PARROT_BUILD_EXAMPLES
 
 # Documentation
 find_package(Doxygen QUIET)
