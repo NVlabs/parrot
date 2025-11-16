@@ -46,19 +46,20 @@ jobs:
           # Capture both stdout and stderr, and save to a file
           uv run make html 2>&1 | tee build_output.log
           
-          # Check if there are any warnings in the output
-          # Look for common Sphinx/Breathe warning patterns
-          if grep -i "warning" build_output.log; then
-            echo "❌ Documentation build contains warnings!"
+          # Check if there are any doxygenfunction/directive warnings that show up in the docs
+          # These are the warnings that appear as warning boxes in the rendered documentation
+          # Pattern: "WARNING: doxygenfunction:" or "WARNING: Unable to resolve"
+          if grep -E "WARNING:.*doxygenfunction:|WARNING:.*Unable to resolve" build_output.log; then
+            echo "❌ Documentation build contains warnings that will show up in the rendered docs!"
             echo ""
             echo "Warnings found:"
             echo "==============="
-            grep -i "warning" build_output.log
+            grep -E "WARNING:.*doxygenfunction:|WARNING:.*Unable to resolve" build_output.log
             echo ""
             echo "Please fix the warnings above before merging."
             exit 1
           else
-            echo "✅ Documentation built successfully with no warnings!"
+            echo "✅ Documentation built successfully with no visible documentation warnings!"
             exit 0
           fi
 
