@@ -108,7 +108,27 @@ You can configure Git to automatically sign off commits:
 ```bash
 git config user.name "Your Name"
 git config user.email "your.email@example.com"
-git config format.signoff true
+```
+
+Then create the file `.git/hooks/prepare-commit-msg` in your local repository with the following content:
+
+```bash
+#!/bin/sh
+
+COMMIT_MSG_FILE=$1
+
+SOB=$(git var GIT_COMMITTER_IDENT | sed -n 's/^\(.*>\).*$/Signed-off-by: \1/p')
+git interpret-trailers --in-place --trailer "$SOB" "$COMMIT_MSG_FILE"
+if test -z "$COMMIT_SOURCE"
+then
+  /usr/bin/perl -i.bak -pe 'print "\n" if !$first_line++' "$COMMIT_MSG_FILE"
+fi
+```
+
+Make sure the script is executable:
+
+```bash
+chmod +x .git/hooks/prepare-commit-msg
 ```
 
 ## Contribution Process
