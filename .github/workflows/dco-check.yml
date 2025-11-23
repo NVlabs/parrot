@@ -1,0 +1,56 @@
+name: DCO Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-dco:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Check for DCO sign-off
+        run: |
+          # Fetch the base branch to ensure we have the reference
+          git fetch origin ${{ github.base_ref }}
+          
+          # Get the list of commit SHAs in the PR
+          # We compare the remote base branch with HEAD
+          commits=$(git rev-list origin/${{ github.base_ref }}..HEAD)
+          
+          if [ -z "$commits" ]; then
+            echo "No commits found to check."
+            exit 0
+          fi
+
+          failed=0
+          
+          for sha in $commits; do
+            # Check the commit message for the Signed-off-by line
+            # The regex checks for "Signed-off-by: Name <Email>"
+            if ! git log --format=%B -n 1 $sha | grep -qE "^Signed-off-by: .+ <.+@.+>"; then
+              echo "----------------------------------------------------------------"
+              echo "Error: Commit $sha is missing a valid DCO sign-off."
+              echo "Commit message:"
+              git log --format=%B -n 1 $sha
+              echo "----------------------------------------------------------------"
+              failed=1
+            fi
+          done
+          
+          if [ $failed -eq 1 ]; then
+            echo "Error: One or more commits are missing the DCO sign-off."
+            echo "Please sign off your commits to certify the Developer Certificate of Origin (DCO)."
+            echo "You can amend your last commit with: git commit --amend -s --no-edit"
+            echo "Or for multiple commits, use interactive rebase: git rebase -i HEAD~N"
+            echo "See CONTRIBUTING.md for more details."
+            exit 1
+          fi
+          
+          echo "All commits are properly signed off."
+
