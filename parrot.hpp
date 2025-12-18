@@ -360,6 +360,17 @@ struct idiv {
 };
 
 /**
+ * @brief Function object for modulo operation
+ */
+struct mod {
+    template <typename T1, typename T2>
+    __host__ __device__ auto operator()(const T1 &a,
+                                        const T2 &b) const -> decltype(a % b) {
+        return a % b;
+    }
+};
+
+/**
  * @brief Function object for subtraction
  */
 struct minus {
@@ -1072,6 +1083,22 @@ class fusion_array {
     template <typename T = int>
     auto idiv(T scalar) const {
         return map2(scalar, parrot::idiv{});
+    }
+
+    /**
+     * @brief Compute modulo of each element by a scalar or perform element-wise
+     * modulo with another fusion_array.
+     * @tparam T The type of the argument, which can be a scalar or another
+     * fusion_array.
+     * @param arg The scalar value to compute modulo by or the other
+     * fusion_array for element-wise modulo.
+     * @return A new fusion_array with the modulo operation applied.
+     * @throws std::invalid_argument if `arg` is a fusion_array and shapes are
+     * incompatible for element-wise operations.
+     */
+    template <typename T>
+    auto mod(const T &arg) const {
+        return map2(arg, parrot::mod{});
     }
 
     /**
@@ -2733,17 +2760,17 @@ class fusion_array {
     }
 
     // clang-format off
-     auto operator/ (auto const &arg) const { return this->div(arg);   }
-     auto operator- (auto const &arg) const { return this->minus(arg); }
-     auto operator+ (auto const &arg) const { return this->add(arg);   }
-     auto operator* (auto const &arg) const { return this->times(arg); }
-     auto operator< (auto const &arg) const { return this->lt(arg);    }
-     auto operator<=(auto const &arg) const { return this->lte(arg);   }
-     auto operator> (auto const &arg) const { return this->gt(arg);    }
-     auto operator>=(auto const &arg) const { return this->gte(arg);   }
-     auto operator==(auto const &arg) const { return this->eq(arg);    }
-     auto operator!=(auto const &arg) const { return this->neq(arg);   }
-     // auto operator%(auto const &arg) const { return this->mod(arg); } // TODO
+    auto operator/ (auto const &arg) const { return this->div(arg);   }
+    auto operator- (auto const &arg) const { return this->minus(arg); }
+    auto operator+ (auto const &arg) const { return this->add(arg);   }
+    auto operator* (auto const &arg) const { return this->times(arg); }
+    auto operator< (auto const &arg) const { return this->lt(arg);    }
+    auto operator<=(auto const &arg) const { return this->lte(arg);   }
+    auto operator> (auto const &arg) const { return this->gt(arg);    }
+    auto operator>=(auto const &arg) const { return this->gte(arg);   }
+    auto operator==(auto const &arg) const { return this->eq(arg);    }
+    auto operator!=(auto const &arg) const { return this->neq(arg);   }
+    auto operator% (auto const &arg) const { return this->mod(arg);   }
     // clang-format on
 };
 

@@ -102,6 +102,40 @@ TEST_CASE("ParrotTest - IDivArrayTest") {
     CHECK(check_match(result, expected));
 }
 
+// Test mod function with a scalar
+TEST_CASE("ParrotTest - ModScalarTest") {
+    auto arr      = parrot::array({10, 21, 15, 8});
+    auto result   = arr.mod(3);
+    auto expected = parrot::array({1, 0, 0, 2});
+    CHECK(check_match(result, expected));
+}
+
+// Test mod function with another array
+TEST_CASE("ParrotTest - ModArrayTest") {
+    auto arr1     = parrot::array({10, 21, 15, 8});
+    auto arr2     = parrot::array({3, 5, 4, 3});
+    auto result   = arr1.mod(arr2);
+    auto expected = parrot::array({1, 1, 3, 2});
+    CHECK(check_match(result, expected));
+}
+
+// Test operator% with a scalar
+TEST_CASE("ParrotTest - ModOperatorScalarTest") {
+    auto arr      = parrot::array({17, 23, 19, 11});
+    auto result   = arr % 5;
+    auto expected = parrot::array({2, 3, 4, 1});
+    CHECK(check_match(result, expected));
+}
+
+// Test operator% with another array
+TEST_CASE("ParrotTest - ModOperatorArrayTest") {
+    auto arr1     = parrot::array({17, 23, 19, 11});
+    auto arr2     = parrot::array({5, 7, 4, 3});
+    auto result   = arr1 % arr2;
+    auto expected = parrot::array({2, 2, 3, 2});
+    CHECK(check_match(result, expected));
+}
+
 // Test minus function with another array
 TEST_CASE("ParrotTest - MinusArrayTest") {
     auto arr1     = parrot::array({10, 20, 15, 8});
