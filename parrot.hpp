@@ -330,9 +330,9 @@ struct add {
  * @brief Function object for multiplication
  */
 struct mul {
-    template <typename T>
-    __host__ __device__ auto operator()(const T &a,
-                                        const T &b) const -> decltype(a * b) {
+    template <typename T1, typename T2>
+    __host__ __device__ auto operator()(const T1 &a,
+                                        const T2 &b) const -> decltype(a * b) {
         return a * b;
     }
 };
@@ -697,6 +697,18 @@ class fusion_array {
 
     // Track if the array is sorted (for optimization purposes)
     bool _is_sorted = false;
+
+    // Helper to get unmasked data as a fusion_array
+    [[nodiscard]] auto _data() const {
+        return fusion_array<Iterator, no_mask_t>(_begin, _end, _owned_storage);
+    }
+
+    // Helper to get mask as a fusion_array (only valid when has_mask)
+    [[nodiscard]] auto _mask() const {
+        static_assert(has_mask, "_mask() requires a masked array");
+        return fusion_array<MaskIterator, no_mask_t>(
+          _mask_range.first, _mask_range.second, _mask_storage);
+    }
 
     // Helper to apply mask for eager operations
     [[nodiscard]] auto _apply_mask_if_needed() const {
@@ -1563,9 +1575,8 @@ class fusion_array {
     [[nodiscard]] auto sum(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
         if constexpr (has_mask) {
-            // Apply mask first
-            auto unmasked = _apply_mask_if_needed();
-            return unmasked.template sum<Axis>();
+            // Zero out masked elements and sum (no materialization)
+            return (_mask() * _data()).template sum<Axis>();
         } else {
             return reduce<Axis>(value_type(0), thrust::plus<value_type>());
         }
