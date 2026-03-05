@@ -1,0 +1,7 @@
+lint.select = ["E", "F", "B", "W", "ERA", "RET", "UP", "I", "N", "Q"]
+
+lint.ignore = [
+    "E501", # Never enforce `E501` (line length violations).
+    "E701", # Multiple statements on one line (colon)
+    "E741", # Ambiguous variable name: `l`
+]

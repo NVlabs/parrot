@@ -1,0 +1,4 @@
+numpy>=1.21.0
+cupy-cuda13x>=13.0.0
+pytest>=7.0.0
+cuda-cccl[cu13]
