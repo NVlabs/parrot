@@ -6,7 +6,6 @@ We welcome contributions to Parrot! This document outlines the process for contr
 
 - [Issue Tracking](#issue-tracking)
 - [Getting Started](#getting-started)
-- [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
 - [Contribution Process](#contribution-process)
 - [Code Standards](#code-standards)
 - [Pull Request Guidelines](#pull-request-guidelines)
@@ -41,76 +40,6 @@ The issue must be reviewed by parrot engineers and discussed prior to code imple
    git checkout -b feature/your-feature-name
    ```
 
-## Developer Certificate of Origin (DCO)
-
-All contributions to parrot must be made under the Developer Certificate of Origin (DCO). The DCO is a simple statement that you, as a contributor, have the legal right to make the contribution.
-
-### DCO Text
-
-By contributing to this project, you certify that:
-
-```
-Developer Certificate of Origin
-Version 1.1
-
-Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
-
-Everyone is permitted to copy and distribute verbatim copies of this
-license document, but changing it is not allowed.
-
-Developer's Certificate of Origin 1.1
-
-By making a contribution to this project, I certify that:
-
-(a) The contribution was created in whole or in part by me and I
-    have the right to submit it under the open source license
-    indicated in the file; or
-
-(b) The contribution is based upon previous work that, to the best
-    of my knowledge, is covered under an appropriate open source
-    license and I have the right under that license to submit that
-    work with modifications, whether created in whole or in part
-    by me, under the same open source license (unless I am
-    permitted to submit under a different license), as indicated
-    in the file; or
-
-(c) The contribution was provided directly to me by some other
-    person who certified (a), (b) or (c) and I have not modified
-    it.
-
-(d) I understand and agree that this project and the contribution
-    are public and that a record of the contribution (including all
-    personal information I submit with it, including my sign-off) is
-    maintained indefinitely and may be redistributed consistent with
-    this project or the open source license(s) involved.
-```
-
-### Signing Off Commits
-
-To indicate your acceptance of the DCO, you must sign off on each commit using the `-s` flag:
-
-```bash
-git commit -s -m "Your commit message"
-```
-
-This adds a `Signed-off-by` line to your commit message:
-
-```
-Signed-off-by: Your Name <your.email@example.com>
-```
-
-**Important**: All commits in your pull request must be signed off. Commits without proper sign-off will not be accepted.
-
-### Automatic Sign-off
-
-You can configure Git to automatically sign off commits:
-
-```bash
-git config user.name "Your Name"
-git config user.email "your.email@example.com"
-git config format.signoff true
-```
-
 ## Contribution Process
 
 1. **Create an Issue**: For significant changes, create an issue first to discuss the proposed changes with maintainers.
@@ -119,7 +48,6 @@ git config format.signoff true
    - Follow the [code standards](#code-standards) outlined below
    - Add tests for new functionality
    - Update documentation as needed
-   - Ensure all commits are signed off with DCO
 
 3. **Test Your Changes**:
    ```bash
@@ -253,8 +181,6 @@ Follow this recommended format for commit messages:
 #<Issue Number> - <Commit Title>
 
 <Commit Body>
-
-Signed-off-by: Your Name <your.email@example.com>
 ```
 
 Example:
@@ -264,8 +190,6 @@ Example:
 This commit adds support for user-defined reduction operations
 in the fusion_array class, enabling more flexible data processing
 workflows.
-
-Signed-off-by: John Doe <john.doe@example.com>
 ```
 
 ### PR Workflow
@@ -274,18 +198,16 @@ Signed-off-by: John Doe <john.doe@example.com>
 2. **Create Branch**: Create a feature branch for your changes
 3. **Make Changes**: Implement your changes following the coding guidelines
 4. **Test Thoroughly**: Ensure all tests pass and the build is clean
-5. **Sign Commits**: All commits must be signed off with DCO
-6. **Push to Fork**: Push your changes to your forked repository
-7. **Create PR**: Open a pull request against the appropriate upstream branch
-8. **Mark WIP**: If still working on the PR, prefix the title with `[WIP]`
-9. **Address Reviews**: Respond to reviewer feedback and make necessary changes
-10. **Final Review**: Wait for final approval from parrot engineers
+5. **Push to Fork**: Push your changes to your forked repository
+6. **Create PR**: Open a pull request against the appropriate upstream branch
+7. **Mark WIP**: If still working on the PR, prefix the title with `[WIP]`
+8. **Address Reviews**: Respond to reviewer feedback and make necessary changes
+9. **Final Review**: Wait for final approval from parrot engineers
 
 ### PR Requirements
 
 Before submitting a PR, ensure:
 
-- [ ] All commits are signed off (`git commit -s`)
 - [ ] Code follows formatting guidelines (`clang-format` applied)
 - [ ] Build is clean with no warnings or errors
 - [ ] All existing tests pass

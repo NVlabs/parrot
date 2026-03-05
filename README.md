@@ -173,13 +173,12 @@ parrot/
 
 We welcome contributions! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) guide for details on:
 
-- Developer Certificate of Origin (DCO) requirements
 - Setting up the development environment  
 - Code standards and review process
 - Running tests and code quality checks
 - Building documentation
 
-All contributions must be signed off under the DCO and comply with the Apache License 2.0.
+All contributions must comply with the Apache License 2.0.
 
 ## 📄 License
 
