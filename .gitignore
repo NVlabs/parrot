@@ -16,3 +16,5 @@ compile_commands.json
 setup-github-runner.sh
 start-runner.sh
 stop-runner.sh
+paper/
+*.csv

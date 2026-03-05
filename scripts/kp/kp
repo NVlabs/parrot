@@ -17,6 +17,8 @@
 #
 
 import argparse
+import base64
+import math
 import os
 import re
 import subprocess
@@ -27,11 +29,37 @@ from urllib.request import urlopen
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
-from PIL import Image
+from PIL import Image, ImageDraw
 from plotly.colors import qualitative
 from tqdm import tqdm
 
 IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda", "arrayfire"]
+
+SIZE_SUFFIXES = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
+
+
+def parse_size(s):
+    s = s.strip().upper()
+    for suffix, multiplier in SIZE_SUFFIXES.items():
+        if s.endswith(suffix):
+            return int(float(s[:-1]) * multiplier)
+    return int(s)
+
+
+def format_size(n):
+    for suffix, multiplier in reversed(list(SIZE_SUFFIXES.items())):
+        if n >= multiplier and n % multiplier == 0:
+            return f"{n // multiplier}{suffix}"
+    return str(n)
+
+
+def geometric_range(lower, upper):
+    values = []
+    val = lower
+    while val <= upper:
+        values.append(val)
+        val *= 10
+    return values
 
 
 def remove_matching_angle_brackets(text, brackets):
@@ -227,8 +255,10 @@ def _create_figure(
     return fig
 
 
-def run_nsys(file_path, output_dir, verbose):
+def run_nsys(file_path, output_dir, verbose, n_value=None):
     base_name = os.path.splitext(os.path.basename(file_path))[0]
+    if n_value is not None:
+        base_name = f"{base_name}_n{n_value}"
     output_name = os.path.join(output_dir, base_name)
     file_path = os.path.abspath(file_path)
     command = [
@@ -241,6 +271,8 @@ def run_nsys(file_path, output_dir, verbose):
     if file_path.endswith(".py"):
         command += ["python"]
     command += [file_path]
+    if n_value is not None:
+        command += [str(n_value)]
 
     nsys_rep = output_name + ".nsys-rep"
     sqlite_file = output_name + ".sqlite"
@@ -320,6 +352,311 @@ def run_profiler(args):
         clean_up([nsys_rep, sqlite_file])
 
 
+def run_sweep_profiler(args, n_values):
+    subdir_path = os.path.join(os.getcwd(), args.subdir)
+    files = [
+        f for f in os.listdir(subdir_path) if f.endswith(".py") or f.endswith("_cu")
+    ]
+
+    if args.filter:
+        files = [f for f in files if args.filter in f]
+
+    output_dir = os.path.join(subdir_path, "nsys_results")
+    os.makedirs(output_dir, exist_ok=True)
+
+    results = {}
+    failed = []
+    total_runs = len(files) * len(n_values)
+
+    with tqdm(total=total_runs, desc="Sweep profiling") as pbar:
+        for file in files:
+            label = os.path.splitext(file)[0]
+            results[label] = {}
+            for n_val in n_values:
+                file_path = os.path.join(subdir_path, file)
+                if args.verbose:
+                    print(f"Processing {file} with N={format_size(n_val)}...")
+
+                nsys_rep, sqlite_file = run_nsys(
+                    file_path, output_dir, args.verbose, n_value=n_val
+                )
+
+                if nsys_rep is None:
+                    failed.append((file, n_val))
+                    pbar.update(1)
+                    continue
+
+                base_name = os.path.splitext(nsys_rep)[0]
+                generate_csv(nsys_rep, base_name, args.verbose)
+
+                csv_path = base_name + "_cuda_gpu_kern_sum.csv"
+                df = load_kernel_data(csv_path)
+                if df is not None:
+                    results[label][n_val] = df["Total Time (ns)"].sum()
+                else:
+                    failed.append((file, n_val))
+
+                clean_up(
+                    [
+                        nsys_rep,
+                        sqlite_file,
+                        base_name + "_cuda_gpu_kern_sum.csv",
+                        base_name + "_cuda_api_sum.csv",
+                    ]
+                )
+                pbar.update(1)
+
+    if failed:
+        print(f"\n⚠️  {len(failed)} run(s) failed:")
+        for file, n_val in failed:
+            print(f"   {file} N={format_size(n_val)}")
+        print("Re-run with -v for details.\n")
+
+    results = {k: v for k, v in results.items() if v}
+
+    sweep_csv = os.path.join(output_dir, "sweep_results.csv")
+    rows = []
+    for label, n_times in results.items():
+        for n_val, total_time in n_times.items():
+            rows.append({"label": label, "N": n_val, "total_time_ns": total_time})
+    pd.DataFrame(rows).to_csv(sweep_csv, index=False)
+
+    return results
+
+
+def _pretty_label(label):
+    if label.endswith("_cu"):
+        label = label[:-3]
+    for name in sorted(IMGS, key=len, reverse=True):
+        idx = label.find(name)
+        if idx >= 0:
+            return label[idx:]
+    return label
+
+
+LOGO_PX = 300
+
+
+def _add_color_dot(img, hex_color):
+    img = img.copy().convert("RGBA").resize((LOGO_PX, LOGO_PX), Image.LANCZOS)
+    radius = 42
+    overlay = Image.new("RGBA", (LOGO_PX, LOGO_PX), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    r, g, b = int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16)
+    cx, cy = LOGO_PX - radius - 6, LOGO_PX - radius - 6
+    draw.ellipse(
+        [cx - radius, cy - radius, cx + radius, cy + radius],
+        fill=(r, g, b, 255),
+    )
+    return Image.alpha_composite(img, overlay)
+
+
+def create_line_chart(results, n_values, chart_name, export_html):
+    fig = go.Figure()
+    colors = [
+        "#636EFA", "#EF553B", "#00CC96", "#AB63FA",
+        "#FFA15A", "#19D3F3", "#FF6692", "#B6E880",
+    ]
+
+    sorted_items = sorted(
+        results.items(), key=lambda kv: max(kv[1].values(), default=0)
+    )
+    n_lines = len(sorted_items)
+
+    # Total-time traces (visible by default)
+    for i, (label, n_times) in enumerate(sorted_items):
+        xs = sorted(n_times.keys())
+        ys = [n_times[x] for x in xs]
+        fig.add_trace(
+            go.Scatter(
+                x=xs, y=ys,
+                mode="lines+markers",
+                name=_pretty_label(label),
+                line=dict(color=colors[i % len(colors)], width=3),
+                marker=dict(size=9),
+                hovertemplate="%{y:,.0f} ns<extra>%{fullData.name}</extra>",
+                visible=True,
+            )
+        )
+
+    # Throughput traces (hidden by default)
+    for i, (label, n_times) in enumerate(sorted_items):
+        xs = sorted(n_times.keys())
+        ys = [x / n_times[x] for x in xs]
+        fig.add_trace(
+            go.Scatter(
+                x=xs, y=ys,
+                mode="lines+markers",
+                name=_pretty_label(label),
+                line=dict(color=colors[i % len(colors)], width=3),
+                marker=dict(size=9),
+                hovertemplate="%{y:,.2f} N/ns<extra>%{fullData.name}</extra>",
+                visible=False,
+            )
+        )
+
+    slow_labels = {"cupy", "thrust"}
+    img_cache = {}
+    cache_buster = int(time.time())
+    logo_size = 0.21
+
+    slow_items = [(i, l, nt) for i, (l, nt) in enumerate(sorted_items)
+                  if nt and _pretty_label(l) in slow_labels]
+    fast_items = [(i, l, nt) for i, (l, nt) in enumerate(sorted_items)
+                  if nt and _pretty_label(l) not in slow_labels]
+
+    def _pil_to_uri(img):
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    def _build_logo_dicts(top_items, bot_items):
+        logo_dicts = []
+        for items, y_pos in [(top_items, 0.88), (bot_items, 0.12)]:
+            n_logos = len(items)
+            for j, (i, label, _) in enumerate(items):
+                paper_x = (j + 1) / (n_logos + 1)
+                for name in IMGS:
+                    if name in label:
+                        if name not in img_cache:
+                            image_url = f"https://raw.githubusercontent.com/codereport/parrot-cpp-extra/main/profiling/assets/{name}.png?cb={cache_buster}"
+                            try:
+                                with urlopen(image_url) as response:
+                                    img_cache[name] = Image.open(
+                                        BytesIO(response.read())
+                                    )
+                            except Exception as e:
+                                print(
+                                    f"Warning: Could not load image for {name}: {e}"
+                                )
+                                img_cache[name] = None
+                        base_img = img_cache.get(name)
+                        if base_img is not None:
+                            dotted = _add_color_dot(
+                                base_img, colors[i % len(colors)]
+                            )
+                            logo_dicts.append(
+                                dict(
+                                    source=_pil_to_uri(dotted),
+                                    xref="paper",
+                                    yref="paper",
+                                    x=paper_x,
+                                    y=y_pos,
+                                    sizex=logo_size,
+                                    sizey=logo_size,
+                                    xanchor="center",
+                                    yanchor="middle",
+                                )
+                            )
+                        break
+        return logo_dicts
+
+    logos_total = _build_logo_dicts(top_items=slow_items, bot_items=fast_items)
+    logos_throughput = _build_logo_dicts(top_items=fast_items, bot_items=slow_items)
+
+    for ld in logos_total:
+        fig.add_layout_image(ld)
+
+    vis_total = [True] * n_lines + [False] * n_lines
+    vis_per_n = [False] * n_lines + [True] * n_lines
+
+    fig.update_layout(
+        template="plotly_white",
+        title=dict(
+            text=f"CUDA Kernel Profiling Sweep — {chart_name}",
+            font=dict(size=22),
+            x=0.5,
+        ),
+        xaxis=dict(
+            title=dict(text="N (input size)", font=dict(size=15)),
+            type="log",
+            tickvals=n_values,
+            ticktext=[format_size(n) for n in n_values],
+            tickfont=dict(size=13),
+            gridcolor="#E5E5E5",
+            showline=True,
+            linecolor="#CCCCCC",
+        ),
+        yaxis=dict(
+            title=dict(text="Total Kernel Time (ns)", font=dict(size=15)),
+            type="log",
+            tickfont=dict(size=13),
+            gridcolor="#E5E5E5",
+            showline=True,
+            linecolor="#CCCCCC",
+        ),
+        legend=dict(
+            font=dict(size=14),
+            orientation="h",
+            x=0.5,
+            y=-0.15,
+            xanchor="center",
+            yanchor="top",
+        ),
+        updatemenus=[
+            dict(
+                type="dropdown",
+                direction="down",
+                x=1.0,
+                xanchor="right",
+                y=1.15,
+                yanchor="top",
+                buttons=[
+                    dict(
+                        label="Total Time",
+                        method="update",
+                        args=[
+                            {"visible": vis_total},
+                            {
+                                "yaxis.title.text": "Total Kernel Time (ns)",
+                                "images": logos_total,
+                            },
+                        ],
+                    ),
+                    dict(
+                        label="N / Time",
+                        method="update",
+                        args=[
+                            {"visible": vis_per_n},
+                            {
+                                "yaxis.title.text": "Throughput (N/ns)",
+                                "images": logos_throughput,
+                            },
+                        ],
+                    ),
+                ],
+            )
+        ],
+        hovermode="x unified",
+        margin=dict(t=100, l=80, r=40, b=100),
+    )
+
+    if export_html:
+        pio.write_html(fig, file=f"{chart_name}_sweep.html", auto_open=False)
+
+    fig.show()
+
+
+def load_sweep_results(args):
+    results_dir = os.path.join(args.subdir, "nsys_results")
+    sweep_csv = os.path.join(results_dir, "sweep_results.csv")
+
+    if not os.path.exists(sweep_csv):
+        print(f"No sweep results found at {sweep_csv}")
+        return None, None
+
+    df = pd.read_csv(sweep_csv)
+    results = {}
+    for _, row in df.iterrows():
+        label = row["label"]
+        if label not in results:
+            results[label] = {}
+        results[label][int(row["N"])] = row["total_time_ns"]
+
+    n_values = sorted(df["N"].unique().astype(int).tolist())
+    return results, n_values
+
+
 def run_plotter(args):
     results_dir = os.path.join(args.subdir, "nsys_results")
     data_frames = []
@@ -370,13 +707,31 @@ def main():
     parser.add_argument(
         "-e", "--export-html", help="export plot as HTML file", action="store_true"
     )
+    parser.add_argument(
+        "-n",
+        "--sweep",
+        nargs=2,
+        metavar=("LOWER", "UPPER"),
+        help="sweep N over geometric 10x range and produce a line chart (e.g. -n 10K 10M)",
+    )
 
     args = parser.parse_args()
 
-    if not args.plot_only:
-        run_profiler(args)
-
-    run_plotter(args)
+    if args.sweep:
+        lower = parse_size(args.sweep[0])
+        upper = parse_size(args.sweep[1])
+        n_values = geometric_range(lower, upper)
+        if not args.plot_only:
+            results = run_sweep_profiler(args, n_values)
+        else:
+            results, n_values = load_sweep_results(args)
+            if results is None:
+                return
+        create_line_chart(results, n_values, args.subdir, args.export_html)
+    else:
+        if not args.plot_only:
+            run_profiler(args)
+        run_plotter(args)
 
 
 if __name__ == "__main__":
