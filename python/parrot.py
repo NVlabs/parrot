@@ -91,10 +91,16 @@ def _iter_type_key(it):
     iterator compositions produce the same cache key even when they are
     different object instances.  Falls back to class name + dtype for plain
     arrays (e.g. CuPy) that don't have a ``kind`` attribute.
+
+    We use hash(kind) rather than str(kind) because IteratorKind subclasses
+    implement __hash__/__eq__ based on structural identity, whereas __repr__
+    may access attributes that are not always set (e.g. PermutationIteratorKind
+    in cuda-cccl 0.5.1 drops value_type in __init__ but references it in
+    __repr__).
     """
     kind = getattr(it, "kind", None)
     if kind is not None:
-        return (str(kind),)
+        return (type(kind).__name__, hash(kind))
     cls = type(it).__name__
     if hasattr(it, "dtype"):
         return (cls, str(it.dtype))

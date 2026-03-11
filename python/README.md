@@ -7,7 +7,7 @@ import parrot
 
 # Basic operations
 result = parrot.range(10).times(2).add(1).sum()  # (0-9) * 2 + 1, then sum
-print(result)  # 95
+print(result)  # 100
 
 # Create arrays from data
 arr = parrot.array([2, 2, 2, 1, 1, 2, 2])
