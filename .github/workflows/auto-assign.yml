@@ -2,8 +2,6 @@ name: Auto Assign
 on:
   issues:
     types: [opened]
-  pull_request:
-    types: [opened]
   pull_request_target:
     types: [opened]
 
@@ -23,7 +21,7 @@ jobs:
           assignees: codereport
 
   assign-pr:
-    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - name: Assign PR author and request review
