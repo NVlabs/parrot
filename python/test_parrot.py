@@ -94,6 +94,29 @@ class TestParrot:
         expected = 14  # Maximum of [5,6,7,8,9,10,11,12,13,14]
         assert result == expected
 
+    def test_idiv(self):
+        """Test integer division."""
+        result = parrot.array([7, 10, 15, 3]).idiv(4).to_host()
+        assert result == [1, 2, 3, 0]
+
+    def test_scalar_min(self):
+        """Test element-wise minimum with a scalar (clamping upper bound)."""
+        result = parrot.range(10).min(5).to_host()
+        # [0,1,2,3,4,5,6,7,8,9] clamped to at most 5 => [0,1,2,3,4,5,5,5,5,5]
+        assert result == [0, 1, 2, 3, 4, 5, 5, 5, 5, 5]
+
+    def test_scalar_max(self):
+        """Test element-wise maximum with a scalar (clamping lower bound)."""
+        result = parrot.range(10).max(5).to_host()
+        # [0,1,2,3,4,5,6,7,8,9] clamped to at least 5 => [5,5,5,5,5,5,6,7,8,9]
+        assert result == [5, 5, 5, 5, 5, 5, 6, 7, 8, 9]
+
+    def test_clamp_via_min_max(self):
+        """Test clamping to a range using min then max (or vice versa)."""
+        result = parrot.range(10).min(7).max(3).to_host()
+        # [0..9] => min(7) => [0,1,2,3,4,5,6,7,7,7] => max(3) => [3,3,3,3,4,5,6,7,7,7]
+        assert result == [3, 3, 3, 3, 4, 5, 6, 7, 7, 7]
+
     def test_new_unary_maps(self):
         """Test new unary transformation methods."""
         # Test neg
@@ -1138,6 +1161,121 @@ class TestReplicate:
         result = arr.replicate(2)
         expected = [2, 2, 4, 4, 6, 6]
         assert result.to_host() == expected
+
+
+class TestRepeat:
+    """Tests for the repeat() method - scalar repetition."""
+
+    def test_repeat_basic(self):
+        """Test basic scalar repeat."""
+        result = parrot.scalar(7).repeat(5).to_host()
+        assert result == [7, 7, 7, 7, 7]
+
+    def test_repeat_one(self):
+        """Test repeat with n=1."""
+        result = parrot.scalar(42).repeat(1).to_host()
+        assert result == [42]
+
+    def test_repeat_non_scalar_raises(self):
+        """Test that repeat on a non-scalar array raises."""
+        with pytest.raises(ValueError, match="scalar"):
+            parrot.array([1, 2, 3]).repeat(3)
+
+    def test_repeat_invalid_n_raises(self):
+        """Test that repeat with n<=0 raises."""
+        with pytest.raises(ValueError):
+            parrot.scalar(1).repeat(0)
+
+    def test_repeat_with_ops(self):
+        """Test repeat result can be used in further operations."""
+        result = parrot.scalar(3).repeat(4).times(2).to_host()
+        assert result == [6, 6, 6, 6]
+
+
+class TestCross:
+    """Tests for the cross() method - cartesian product."""
+
+    def test_cross_basic(self):
+        """Test basic cartesian product with a sum op."""
+        a = parrot.array([1, 2])
+        b = parrot.array([10, 20, 30])
+        result = a.cross(b).map(lambda t: t[0] + t[1]).to_host()
+        # [1+10, 1+20, 1+30, 2+10, 2+20, 2+30]
+        assert result == [11, 21, 31, 12, 22, 32]
+
+    def test_cross_length(self):
+        """Test cartesian product length is len(a)*len(b)."""
+        a = parrot.array([1, 2, 3])
+        b = parrot.array([4, 5])
+        result = a.cross(b)
+        assert result.length == 6
+
+    def test_cross_mul(self):
+        """Test cartesian product with multiplication."""
+        a = parrot.array([1, 2])
+        b = parrot.array([3, 4])
+        result = a.cross(b).map(lambda t: t[0] * t[1]).to_host()
+        # [1*3, 1*4, 2*3, 2*4]
+        assert result == [3, 4, 6, 8]
+
+    def test_cross_empty_raises(self):
+        """Test that cross with empty array raises."""
+        with pytest.raises(ValueError, match="empty"):
+            parrot.array([1]).cross(parrot.array([]))
+
+
+class TestEnumerate:
+    """Tests for the enumerate() method."""
+
+    def test_enumerate_basic(self):
+        """Test basic enumerate - sum of value and index."""
+        result = parrot.array([10, 20, 30]).enumerate().map(lambda t: t[0] + t[1]).to_host()
+        # [(10,0), (20,1), (30,2)] -> [10, 21, 32]
+        assert result == [10, 21, 32]
+
+    def test_enumerate_index_only(self):
+        """Test extracting just the index from enumerate."""
+        result = parrot.array([5, 5, 5]).enumerate().map(lambda t: t[1]).to_host()
+        assert result == [0, 1, 2]
+
+    def test_enumerate_length(self):
+        """Test enumerate preserves length."""
+        arr = parrot.range(7)
+        assert arr.enumerate().length == 7
+
+
+class TestTranspose:
+    """Tests for the transpose() method."""
+
+    def test_transpose_basic(self):
+        """Test basic 2x3 transpose."""
+        # Matrix: [[0,1,2],[3,4,5]] (2 rows, 3 cols)
+        m = parrot.range(6).reshape((2, 3))
+        t = m.transpose()
+        assert t.shape == (3, 2)
+        # Transposed: [[0,3],[1,4],[2,5]]
+        assert t.to_host() == [[0, 3], [1, 4], [2, 5]]
+
+    def test_transpose_square(self):
+        """Test transpose of a square matrix."""
+        # [[1,2],[3,4]]
+        m = parrot.array([1, 2, 3, 4]).reshape((2, 2))
+        t = m.transpose()
+        assert t.shape == (2, 2)
+        # [[1,3],[2,4]]
+        assert t.to_host() == [[1, 3], [2, 4]]
+
+    def test_transpose_1d_raises(self):
+        """Test that transpose on a 1D array raises."""
+        with pytest.raises(ValueError, match="rank 2"):
+            parrot.range(5).transpose()
+
+    def test_double_transpose(self):
+        """Test that transposing twice returns the original."""
+        m = parrot.range(12).reshape((3, 4))
+        original = m.to_host()
+        result = m.transpose().transpose().to_host()
+        assert result == original
 
 
 class TestNrowsNcols:

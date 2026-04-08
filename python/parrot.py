@@ -183,27 +183,6 @@ def from_cupy(arr):
     return pa
 
 
-# Cache for scalar comparison functions used by __eq__, __lt__, etc.
-# Returns the same function object for the same scalar value, so the
-# TransformIterator cache can hit on repeated calls like `arr == 2`.
-_scalar_eq_cache = {}
-
-
-def _make_scalar_eq(val):
-    """Get or create a cached function for `x == val`."""
-    cached = _scalar_eq_cache.get(val)
-    if cached is not None:
-        return cached
-
-    def scalar_eq_op(x):
-        return 1 if x == val else 0
-
-    scalar_eq_op.__name__ = f"scalar_eq_{val}"
-    scalar_eq_op.__annotations__ = {"x": np.int64, "return": np.int32}
-    _scalar_eq_cache[val] = scalar_eq_op
-    return scalar_eq_op
-
-
 # Global counter for entropy mixing (similar to C++ rnd::global_counter)
 _global_rand_counter = 0
 
@@ -706,95 +685,57 @@ class ParrotArray:
             raise ValueError("apply() can only be called on masked arrays")
         return self._apply_mask_if_needed()
 
-    def _binary_op(self, other, op_func, scalar_op=None):
-        """Helper for binary operators.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-        """
-        # Apply mask if present before binary operation
-        if self.has_mask:
-            return self._apply_mask_if_needed()._binary_op(other, op_func, scalar_op)
-
-        if isinstance(other, (int, float, np.number)):
-            # Scalar operation
-            # Use explicit scalar op if provided (e.g. add, sub), otherwise lambda
-            new_self = self._clone()
-            if scalar_op:
-                return scalar_op(new_self, other)
-            # Fallback for operators without specific scalar methods
-            # Note: lambda sanitation might fail if not careful with closure
-            return new_self.map(lambda x: op_func((x, other)))
-        if isinstance(other, ParrotArray):
-            # Apply mask on other if present
-            if other.has_mask:
-                return self._binary_op(
-                    other._apply_mask_if_needed(), op_func, scalar_op
-                )
-
-            # Array operation
-            if self.length != other.length:
-                raise ValueError(f"Shape mismatch: {self.length} vs {other.length}")
-
-            iter_a, restore_a = self._get_nestable_iterator()
-            iter_b, restore_b = other._get_nestable_iterator()
-
-            zip_iter = iterators.ZipIterator(iter_a, iter_b)
-            restore_a()
-            restore_b()
-
-            # Create a new ParrotArray from the zip
-            result = ParrotArray(iterator=zip_iter, dtype=self.dtype)
-            result.length = self.length
-            result._shape = self._shape
-
-            return result.map(op_func)
-        return NotImplemented
-
     def __add__(self, other):
-        return self._binary_op(other, _OP_TO_ZIP[add_op], lambda s, o: s.add(o))
+        if not isinstance(other, (int, float, np.number, ParrotArray)):
+            return NotImplemented
+        return self.map2(other, add_op)
 
     def __sub__(self, other):
-        return self._binary_op(other, _OP_TO_ZIP[sub_op], lambda s, o: s.minus(o))
+        if not isinstance(other, (int, float, np.number, ParrotArray)):
+            return NotImplemented
+        return self.map2(other, sub_op)
 
     def __mul__(self, other):
-        return self._binary_op(other, _OP_TO_ZIP[mul_op], lambda s, o: s.times(o))
+        if not isinstance(other, (int, float, np.number, ParrotArray)):
+            return NotImplemented
+        return self.map2(other, mul_op)
 
     def __truediv__(self, other):
-        return self._binary_op(other, _OP_TO_ZIP[div_op], lambda s, o: s.div(o))
+        if not isinstance(other, (int, float, np.number, ParrotArray)):
+            return NotImplemented
+        return self.map2(other, div_op)
 
     def __eq__(self, other):
-        # For scalar equality, use a cached function to enable TransformIterator cache hits
-        def scalar_eq(s, val):
-            return s.map(_make_scalar_eq(val))
+        if not isinstance(other, (int, float, np.number, ParrotArray)):
+            return NotImplemented
+        return self.map2(other, eq_op)
 
-        return self._binary_op(other, _OP_TO_ZIP[eq_op], scalar_eq)
+    def __ne__(self, other):
+        if not isinstance(other, (int, float, np.number, ParrotArray)):
+            return NotImplemented
+        return self.map2(other, neq_op)
 
-    def times(self, factor: Union[int, float]):
-        """Multiply each element by a factor."""
+    def __mod__(self, other):
+        if not isinstance(other, (int, float, np.number, ParrotArray)):
+            return NotImplemented
+        return self.map2(other, mod_op)
 
-        def multiply_op(x):
-            return x * factor
+    def __floordiv__(self, other):
+        if not isinstance(other, (int, float, np.number, ParrotArray)):
+            return NotImplemented
+        return self.map2(other, idiv_op)
 
-        self._transforms.append(multiply_op)
-        return self
+    def times(self, arg):
+        """Multiply each element by a scalar or another array."""
+        return self.map2(arg, mul_op)
 
-    def add(self, value: Union[int, float]):
-        """Add a value to each element."""
+    def add(self, arg):
+        """Add a scalar or another array to each element."""
+        return self.map2(arg, add_op)
 
-        def add_op(x):
-            return x + value
-
-        self._transforms.append(add_op)
-        return self
-
-    def minus(self, value: Union[int, float]):
-        """Subtract a value from each element."""
-
-        def subtract_op(x):
-            return x - value
-
-        self._transforms.append(subtract_op)
-        return self
+    def minus(self, arg):
+        """Subtract a scalar or another array from each element."""
+        return self.map2(arg, sub_op)
 
     def sq(self):
         """Square each element."""
@@ -819,33 +760,56 @@ class ParrotArray:
         self._transforms.append(self._sanitize_op(op))
         return self
 
-    def map2(self, other: "ParrotArray", op: Callable) -> "ParrotArray":
-        """Zip two arrays element-wise and apply a binary transform (lazy).
+    def map2(self, other, op: Callable) -> "ParrotArray":
+        """Apply a binary operation element-wise with a scalar or another array.
 
-        Like C++ thrust::transform with a zip_iterator, this fuses the zip and
-        the transform into a single iterator chain — nothing is materialised.
+        Mirrors C++ fusion_array::map2: accepts a scalar or a ParrotArray and a
+        binary functor ``(a, b) -> value``.  For scalars the functor is
+        partially applied and fused as a TransformIterator; for arrays a
+        ZipIterator + TransformIterator is used.  Both paths are fully lazy.
 
         Args:
-            other: The other ParrotArray (must have the same length)
-            op: A function ``(pair) -> value`` where *pair* is a tuple of the
-                two zipped elements, e.g. ``lambda p: p[0] + p[1]``.
+            other: A scalar (int/float) or a ParrotArray
+            op: A binary function ``(a, b) -> value``
 
         Returns:
-            A new ParrotArray backed by TransformIterator(ZipIterator(a, b), op)
+            A new ParrotArray with the operation applied lazily
         """
-        if self.length != other.length:
-            raise ValueError(f"Shape mismatch: {self.length} vs {other.length}")
+        if self.has_mask:
+            return self._apply_mask_if_needed().map2(other, op)
 
-        a, restore_a = self._get_nestable_iterator()
-        b, restore_b = other._get_nestable_iterator()
+        if isinstance(other, (int, float, np.number)):
+            binder = _OP_TO_SCALAR_BIND.get(op)
+            if binder is not None:
+                return self._clone().map(binder(other))
+            _val = other
+            def bound_op(x):
+                return op(x, _val)
+            return self._clone().map(bound_op)
 
-        zip_iter = iterators.ZipIterator(a, b)
-        restore_a()
-        restore_b()
+        if isinstance(other, ParrotArray):
+            if other.has_mask:
+                return self.map2(other._apply_mask_if_needed(), op)
 
-        result = ParrotArray(iterator=zip_iter, dtype=self.dtype, length=self.length)
-        result._shape = self._shape
-        return result.map(op)
+            if self.length != other.length:
+                raise ValueError(f"Shape mismatch: {self.length} vs {other.length}")
+
+            zip_op = _OP_TO_ZIP.get(op)
+            if zip_op is None:
+                def zip_op(t):
+                    return op(t[0], t[1])
+
+            a, restore_a = self._get_nestable_iterator()
+            b, restore_b = other._get_nestable_iterator()
+            zip_iter = iterators.ZipIterator(a, b)
+            restore_a()
+            restore_b()
+
+            result = ParrotArray(iterator=zip_iter, dtype=self.dtype, length=self.length)
+            result._shape = self._shape
+            return result.map(zip_op)
+
+        raise TypeError(f"map2: unsupported operand type {type(other)}")
 
     def neg(self):
         """Negate each element."""
@@ -927,62 +891,33 @@ class ParrotArray:
         self._transforms.append(log_op)
         return self
 
-    def div(self, value: Union[int, float]):
-        """Divide each element by a value."""
-        # Convert value to same dtype to ensure proper division
-        _value = self.dtype(value)
+    def div(self, arg):
+        """Divide each element by a scalar or another array."""
+        return self.map2(arg, div_op)
 
-        def div_op(x):
-            return x / _value
+    def idiv(self, arg):
+        """Integer-divide each element by a scalar or another array."""
+        return self.map2(arg, idiv_op)
 
-        div_op.__annotations__ = {"x": self.dtype, "return": self.dtype}
-        self._transforms.append(div_op)
-        return self
+    def mod(self, arg):
+        """Compute modulo by a scalar or another array."""
+        return self.map2(arg, mod_op)
 
-    def mod(self, value: Union[int, float]):
-        """Compute modulo of each element by a value."""
+    def gt(self, arg):
+        """Element-wise greater-than (scalar or array). Returns 1 or 0."""
+        return self.map2(arg, gt_op)
 
-        def mod_op(x):
-            return x % value
+    def gte(self, arg):
+        """Element-wise greater-than-or-equal (scalar or array). Returns 1 or 0."""
+        return self.map2(arg, gte_op)
 
-        self._transforms.append(mod_op)
-        return self
+    def lt(self, arg):
+        """Element-wise less-than (scalar or array). Returns 1 or 0."""
+        return self.map2(arg, lt_op)
 
-    def gt(self, value: Union[int, float]):
-        """Check if each element is greater than value (returns 1 or 0)."""
-
-        def gt_op(x):
-            return 1 if x > value else 0
-
-        self._transforms.append(gt_op)
-        return self
-
-    def gte(self, value: Union[int, float]):
-        """Check if each element is greater than or equal to value (returns 1 or 0)."""
-
-        def gte_op(x):
-            return 1 if x >= value else 0
-
-        self._transforms.append(gte_op)
-        return self
-
-    def lt(self, value: Union[int, float]):
-        """Check if each element is less than value (returns 1 or 0)."""
-
-        def lt_op(x):
-            return 1 if x < value else 0
-
-        self._transforms.append(lt_op)
-        return self
-
-    def lte(self, value: Union[int, float]):
-        """Check if each element is less than or equal to value (returns 1 or 0)."""
-
-        def lte_op(x):
-            return 1 if x <= value else 0
-
-        self._transforms.append(lte_op)
-        return self
+    def lte(self, arg):
+        """Element-wise less-than-or-equal (scalar or array). Returns 1 or 0."""
+        return self.map2(arg, lte_op)
 
     def sum(self, axis: int = 0):
         """Sum all elements using reduction."""
@@ -992,9 +927,11 @@ class ParrotArray:
         """Multiply all elements using reduction."""
         return self.reduce(_reduce_mul, 1, axis=axis)
 
-    def max(self, axis: int = 0):
-        """Find maximum element using reduction."""
-        # Use appropriate minimum value for the data type
+    def max(self, value=None, axis: int = 0):
+        """Element-wise maximum with a scalar or array, or reduction when no value given."""
+        if value is not None:
+            return self.map2(value, max_op)
+
         if self.dtype == np.int32:
             init_val = np.iinfo(np.int32).min
         elif self.dtype == np.int64:
@@ -1004,9 +941,11 @@ class ParrotArray:
 
         return self.reduce(_reduce_max, init_val, axis=axis)
 
-    def min(self, axis: int = 0):
-        """Find minimum element using reduction."""
-        # Use appropriate maximum value for the data type
+    def min(self, value=None, axis: int = 0):
+        """Element-wise minimum with a scalar or array, or reduction when no value given."""
+        if value is not None:
+            return self.map2(value, min_op)
+
         if self.dtype == np.int32:
             init_val = np.iinfo(np.int32).max
         elif self.dtype == np.int64:
@@ -1829,32 +1768,9 @@ class ParrotArray:
         result.length = self.length
         return result
 
-    def neq(self, other):
-        """Check element-wise inequality, returning 1 where different, 0 where equal.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Args:
-            other: A ParrotArray to compare with, or a scalar
-
-        Returns:
-            A new ParrotArray with 1s where elements differ, 0s where equal
-        """
-        # Apply masks if present (collect handles this)
-        d_self = self.collect()
-
-        if isinstance(other, ParrotArray):
-            d_other = other.collect()
-            if len(d_self) != len(d_other):
-                raise ValueError(f"Shape mismatch: {len(d_self)} vs {len(d_other)}")
-            d_result = (d_self != d_other).astype(self.dtype)
-        else:
-            d_result = (d_self != other).astype(self.dtype)
-
-        result = ParrotArray(data=d_result, dtype=self.dtype)
-        result._iterator = d_result
-        result.length = len(d_result)
-        return result
+    def neq(self, arg):
+        """Element-wise inequality (scalar or array). Returns 1 or 0."""
+        return self.map2(arg, neq_op)
 
     def gather(self, indices):
         """Gather elements at the specified indices (lazy permutation iterator).
@@ -2040,6 +1956,126 @@ class ParrotArray:
 
         result = ParrotArray(iterator=replicate_iter, dtype=self.dtype)
         result.length = self.length * n
+        return result
+
+    def repeat(self, n: int):
+        """Repeat a scalar value n times to create a 1D array.
+
+        Only works on single-element (scalar) arrays.
+        For arrays with more elements, use replicate() or cycle() instead.
+
+        Args:
+            n: Number of repetitions (must be > 0)
+
+        Returns:
+            A new ParrotArray of length n with the scalar value repeated
+
+        Raises:
+            ValueError: If the array has more than one element or n <= 0
+        """
+        if self.length != 1:
+            raise ValueError("repeat: array must be a scalar (length 1)")
+        if n <= 0:
+            raise ValueError("repeat: n must be > 0")
+        return constant(self.front(), n, self.dtype)
+
+    def cross(self, other):
+        """Cartesian product with another array (lazy).
+
+        For [1, 2] and [a, b], produces a zipped array of length 4
+        representing pairs: [(1,a), (1,b), (2,a), (2,b)].
+        Apply .map(tuple_op) to combine the pairs.
+
+        Mirrors C++ replicate + cycle + pairs.
+
+        Args:
+            other: Another ParrotArray
+
+        Returns:
+            A new ParrotArray backed by a ZipIterator over the expanded arrays
+        """
+        if self.length == 0 or other.length == 0:
+            raise ValueError("cross: arrays must not be empty")
+
+        total = self.length * other.length
+        left = self.replicate(other.length)
+
+        _other_len = other.length
+        def cycle_idx(i):
+            return i % _other_len
+        cycle_idx.__annotations__ = {"i": np.int32, "return": np.int32}
+
+        cycle_index_iter = iterators.TransformIterator(
+            iterators.CountingIterator(np.int32(0)), cycle_idx
+        )
+        right_base, restore_right = other._get_nestable_iterator()
+        right_iter = iterators.PermutationIterator(right_base, cycle_index_iter)
+        restore_right()
+
+        left_iter, restore_left = left._get_nestable_iterator()
+        zip_iter = iterators.ZipIterator(left_iter, right_iter)
+        restore_left()
+
+        result = ParrotArray(iterator=zip_iter, dtype=self.dtype)
+        result.length = total
+        return result
+
+    def enumerate(self):
+        """Pair each element with its index (lazy).
+
+        For [a, b, c], produces a zipped array of pairs:
+        [(a, 0), (b, 1), (c, 2)].
+        Apply .map(tuple_op) to combine the pairs.
+
+        Mirrors C++ enumerate() which returns pairs(range(size)).
+
+        Returns:
+            A new ParrotArray backed by a ZipIterator of (value, index)
+        """
+        indices_iter = iterators.CountingIterator(np.int32(0))
+        values_iter, restore_values = self._get_nestable_iterator()
+        zip_iter = iterators.ZipIterator(values_iter, indices_iter)
+        restore_values()
+
+        result = ParrotArray(iterator=zip_iter, dtype=self.dtype)
+        result.length = self.length
+        return result
+
+    def transpose(self):
+        """Transpose a 2D array (lazy).
+
+        Uses a permutation iterator with transposed index mapping so no
+        data is copied.  For a matrix with shape (R, C), returns a new
+        array with shape (C, R).
+
+        Returns:
+            A new ParrotArray representing the transposed matrix
+
+        Raises:
+            ValueError: If the array is not rank 2
+        """
+        if self._shape is None or len(self._shape) != 2:
+            raise ValueError("transpose: array must be rank 2 (a matrix)")
+
+        nrows, ncols = self._shape
+        total = nrows * ncols
+
+        _nrows = nrows
+        _ncols = ncols
+        def transpose_idx(i):
+            return (i % _nrows) * _ncols + i // _nrows
+        transpose_idx.__annotations__ = {"i": np.int32, "return": np.int32}
+
+        base_iter, restore_base = self._get_nestable_iterator()
+        index_iter = iterators.TransformIterator(
+            iterators.CountingIterator(np.int32(0)), transpose_idx
+        )
+        perm_iter = iterators.PermutationIterator(base_iter, index_iter)
+        restore_base()
+
+        result = ParrotArray(iterator=perm_iter, dtype=self.dtype)
+        result.length = total
+        result._shape = (ncols, nrows)
         return result
 
     def to_host(self):
@@ -2300,12 +2336,24 @@ def gt_op(a, b):
     return int(a > b)
 
 
+def gte_op(a, b):
+    return int(a >= b)
+
+
+def lte_op(a, b):
+    return int(a <= b)
+
+
+mod_op = operator.mod
+idiv_op = operator.floordiv
+
+
 def delta_op(a, b):
     return b - a
 
 
 # Pre-annotate all binary ops
-for _op in [eq_op, neq_op, lt_op, gt_op, delta_op]:
+for _op in [eq_op, neq_op, lt_op, gt_op, gte_op, lte_op, delta_op]:
     _op.__annotations__ = {"a": np.int64, "b": np.int64, "return": np.int64}
 
 
@@ -2354,6 +2402,22 @@ def _zip_gt(t):
     return 1 if t[0] > t[1] else 0
 
 
+def _zip_gte(t):
+    return 1 if t[0] >= t[1] else 0
+
+
+def _zip_lte(t):
+    return 1 if t[0] <= t[1] else 0
+
+
+def _zip_mod(t):
+    return t[0] % t[1]
+
+
+def _zip_idiv(t):
+    return t[0] // t[1]
+
+
 # Note: zip ops intentionally have NO annotations.
 # The cuda.compute library infers input types from the ZipIterator,
 # and _sanitize_op will skip them because their __name__ != "<lambda>".
@@ -2371,6 +2435,88 @@ _OP_TO_ZIP = {
     neq_op: _zip_neq,
     lt_op: _zip_lt,
     gt_op: _zip_gt,
+    gte_op: _zip_gte,
+    lte_op: _zip_lte,
+    mod_op: _zip_mod,
+    idiv_op: _zip_idiv,
+}
+
+
+# Scalar binder factories for map2's scalar path.
+# Numba's CUDA JIT cannot compile closures that capture Python function
+# objects as free variables.  These factories produce closures that only
+# capture a scalar value, which Numba handles natively.
+def _bind_add(v):
+    def f(x): return x + v
+    return f
+
+def _bind_sub(v):
+    def f(x): return x - v
+    return f
+
+def _bind_mul(v):
+    def f(x): return x * v
+    return f
+
+def _bind_div(v):
+    def f(x): return x / v
+    return f
+
+def _bind_idiv(v):
+    def f(x): return x // v
+    return f
+
+def _bind_mod(v):
+    def f(x): return x % v
+    return f
+
+def _bind_gt(v):
+    def f(x): return 1 if x > v else 0
+    return f
+
+def _bind_gte(v):
+    def f(x): return 1 if x >= v else 0
+    return f
+
+def _bind_lt(v):
+    def f(x): return 1 if x < v else 0
+    return f
+
+def _bind_lte(v):
+    def f(x): return 1 if x <= v else 0
+    return f
+
+def _bind_eq(v):
+    def f(x): return 1 if x == v else 0
+    return f
+
+def _bind_neq(v):
+    def f(x): return 1 if x != v else 0
+    return f
+
+def _bind_min(v):
+    def f(x): return v if x > v else x
+    return f
+
+def _bind_max(v):
+    def f(x): return v if x < v else x
+    return f
+
+_OP_TO_SCALAR_BIND = {
+    add_op: _bind_add,
+    sub_op: _bind_sub,
+    mul_op: _bind_mul,
+    div_op: _bind_div,
+    idiv_op: _bind_idiv,
+    mod_op: _bind_mod,
+    gt_op: _bind_gt,
+    gte_op: _bind_gte,
+    lt_op: _bind_lt,
+    lte_op: _bind_lte,
+    eq_op: _bind_eq,
+    neq_op: _bind_neq,
+    min_op: _bind_min,
+    max_op: _bind_max,
 }
 
 
