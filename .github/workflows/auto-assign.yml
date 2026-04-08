@@ -13,18 +13,26 @@ permissions:
   contents: read
 
 jobs:
-  assign:
+  assign-issue:
+    if: github.event_name == 'issues'
     runs-on: ubuntu-latest
     steps:
-      # Handle Issues
-      - if: github.event_name == 'issues'
-        uses: pozil/auto-assign-issue@v2
+      - uses: actions-ecosystem/action-add-assignees@v1
         with:
+          github_token: ${{ github.token }}
           assignees: codereport
-          numOfAssignee: 1
-      
-      # Handle PRs - use one action that can handle both assignments and reviews
-      - if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
-        uses: kentaro-m/auto-assign-action@v1.2.5
-        with:
-          configuration-path: .github/auto-assign-config.yml
+
+  assign-pr:
+    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assign PR author and request review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          gh pr edit "$PR_URL" --add-assignee "$PR_AUTHOR"
+          if [ "$PR_AUTHOR" != "codereport" ]; then
+            gh pr edit "$PR_URL" --add-reviewer codereport
+          fi
