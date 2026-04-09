@@ -142,6 +142,10 @@ html_css_files = [
     "pygments_custom.css",  # Custom Pygments styling
 ]
 
+html_js_files = [
+    "github_icon.js",
+]
+
 # Enable better sidebar structure
 html_show_sourcelink = False
 html_sidebars = {
