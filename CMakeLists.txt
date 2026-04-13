@@ -199,16 +199,23 @@ FetchContent_Declare(
 message(STATUS "Downloading NVIDIA CCCL... (this may take a moment)")
 FetchContent_MakeAvailable(cccl)
 
-# Add CCCL include directories with highest priority to override system headers
-include_directories(BEFORE SYSTEM ${cccl_SOURCE_DIR})
-include_directories(BEFORE SYSTEM ${cccl_SOURCE_DIR}/cub)  
-include_directories(BEFORE SYSTEM ${cccl_SOURCE_DIR}/thrust)
-include_directories(BEFORE SYSTEM ${cccl_SOURCE_DIR}/libcudacxx/include)
-message(STATUS "Added CCCL include directories (highest priority): ${cccl_SOURCE_DIR}")
+# Create parrot INTERFACE library target so downstream users can just:
+#   target_link_libraries(my_target parrot)
+# and get both parrot + CCCL include paths propagated automatically.
+#
+# Uses -I (not -isystem) per CCCL docs to correctly override nvcc's implicit CCCL headers.
+# CCCL headers use #pragma system_header to suppress warnings regardless.
+# See: https://github.com/NVIDIA/cccl?tab=readme-ov-file#github
+add_library(parrot INTERFACE)
+target_include_directories(parrot INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${cccl_SOURCE_DIR}/cub
+    ${cccl_SOURCE_DIR}/thrust
+    ${cccl_SOURCE_DIR}/libcudacxx/include
+)
 
-# Force CCCL headers to be found first via compiler flags
-# Use -isystem to suppress warnings and -idirafter to ensure system headers come after
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -isystem ${cccl_SOURCE_DIR} -isystem ${cccl_SOURCE_DIR}/cub -isystem ${cccl_SOURCE_DIR}/thrust -isystem ${cccl_SOURCE_DIR}/libcudacxx/include")
+# Also add to directory-level includes for parrot's own tests/examples
+include_directories(BEFORE ${cccl_SOURCE_DIR}/cub ${cccl_SOURCE_DIR}/thrust ${cccl_SOURCE_DIR}/libcudacxx/include)
 
 # Only build tests and examples when Parrot is the top-level project
 # This prevents tests from being built when Parrot is included as a dependency
