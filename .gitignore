@@ -18,3 +18,4 @@ start-runner.sh
 stop-runner.sh
 paper/
 *.csv
+__pycache__/
