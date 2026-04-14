@@ -191,7 +191,7 @@ set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 FetchContent_Declare(
   cccl
   GIT_REPOSITORY https://github.com/NVIDIA/cccl.git
-  GIT_TAG v3.2.0.dev # Pinned: has Thrust 3.2.0 features, avoids breaking changes on main
+  GIT_TAG main
   GIT_SHALLOW TRUE
   TIMEOUT 60
 )
