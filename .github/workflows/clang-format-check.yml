@@ -48,12 +48,8 @@ jobs:
           echo "Checking $file..."
           if ! clang-format --dry-run --Werror "$file" > /dev/null 2>&1; then
             echo "❌ $file is not properly formatted"
-            echo "Expected format:"
-            clang-format "$file" | head -20
-            echo ""
-            echo "Actual format:"
-            head -20 "$file"
-            echo ""
+            echo "Diff (expected vs actual):"
+            diff <(clang-format "$file") "$file" || true
             echo "---"
             format_issues=$((format_issues + 1))
           else

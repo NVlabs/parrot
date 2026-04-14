@@ -18,7 +18,6 @@
 #ifndef PARROT_HPP
 #define PARROT_HPP
 
-#include <cuda/iterator>
 #include <thrust/copy.h>
 #include <thrust/count.h>
 #include <thrust/device_reference.h>
@@ -42,6 +41,7 @@
 #include <cmath>
 #include <cstdint>
 #include <ctime>
+#include <cuda/iterator>
 #include <initializer_list>
 #include <iomanip>
 #include <iostream>
