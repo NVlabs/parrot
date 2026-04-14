@@ -22,11 +22,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Install clang-format
+    - name: Install clang-format-21 from LLVM apt repo
       run: |
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        sudo add-apt-repository -y "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs) main"
         sudo apt-get update
-        sudo apt-get install -y clang-format
-        clang-format --version
+        sudo apt-get install -y clang-format-21
+        clang-format-21 --version
         
     - name: Check C++ code formatting
       run: |
@@ -46,10 +48,10 @@ jobs:
         format_issues=0
         for file in $files; do
           echo "Checking $file..."
-          if ! clang-format --dry-run --Werror "$file" > /dev/null 2>&1; then
+          if ! clang-format-21 --dry-run --Werror "$file" > /dev/null 2>&1; then
             echo "❌ $file is not properly formatted"
             echo "Diff (expected vs actual):"
-            diff <(clang-format "$file") "$file" || true
+            diff <(clang-format-21 "$file") "$file" || true
             echo "---"
             format_issues=$((format_issues + 1))
           else
