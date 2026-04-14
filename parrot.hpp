@@ -23,7 +23,6 @@
 #include <thrust/device_reference.h>
 #include <thrust/device_vector.h>
 #include <thrust/functional.h>
-#include <cuda/iterator>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
 #include <thrust/iterator/permutation_iterator.h>
@@ -42,6 +41,7 @@
 #include <cmath>
 #include <cstdint>
 #include <ctime>
+#include <cuda/iterator>
 
 #include <initializer_list>
 #include <iomanip>
@@ -209,8 +209,8 @@ struct add_functor {
 // Delta functor for adjacent element differences
 struct delta {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a,
-                                        const T &b) const -> decltype(b - a) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const
+      -> decltype(b - a) {
         return b - a;
     }
 };
@@ -320,8 +320,8 @@ struct gte {
  */
 struct add {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a,
-                                        const T &b) const -> decltype(a + b) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const
+      -> decltype(a + b) {
         return a + b;
     }
 };
@@ -331,8 +331,8 @@ struct add {
  */
 struct mul {
     template <typename T1, typename T2>
-    __host__ __device__ auto operator()(const T1 &a,
-                                        const T2 &b) const -> decltype(a * b) {
+    __host__ __device__ auto operator()(const T1 &a, const T2 &b) const
+      -> decltype(a * b) {
         return a * b;
     }
 };
@@ -342,8 +342,8 @@ struct mul {
  */
 struct div {
     template <typename T1, typename T2>
-    __host__ __device__ auto operator()(const T1 &a,
-                                        const T2 &b) const -> decltype(a / b) {
+    __host__ __device__ auto operator()(const T1 &a, const T2 &b) const
+      -> decltype(a / b) {
         return a / b;
     }
 };
@@ -364,8 +364,8 @@ struct idiv {
  */
 struct mod {
     template <typename T1, typename T2>
-    __host__ __device__ auto operator()(const T1 &a,
-                                        const T2 &b) const -> decltype(a % b) {
+    __host__ __device__ auto operator()(const T1 &a, const T2 &b) const
+      -> decltype(a % b) {
         return a % b;
     }
 };
@@ -375,8 +375,8 @@ struct mod {
  */
 struct minus {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a,
-                                        const T &b) const -> decltype(a - b) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const
+      -> decltype(a - b) {
         return a - b;
     }
 };
@@ -1195,10 +1195,9 @@ class fusion_array {
      * @return A new fusion_array with the operation applied
      */
     template <typename BinaryOp>
-    auto map_adj(BinaryOp op) const
-      -> fusion_array<thrust::transform_iterator<
-        thrust::zip_function<BinaryOp>,
-        thrust::zip_iterator<thrust::tuple<Iterator, Iterator>>>> {
+    auto map_adj(BinaryOp op) const -> fusion_array<thrust::transform_iterator<
+      thrust::zip_function<BinaryOp>,
+      thrust::zip_iterator<thrust::tuple<Iterator, Iterator>>>> {
         auto zip_begin = thrust::make_zip_iterator(
           thrust::make_tuple(_begin, _begin + 1));
         auto transform_begin = thrust::make_transform_iterator(
