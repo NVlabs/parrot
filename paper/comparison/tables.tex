@@ -1,0 +1,132 @@
+\documentclass[10pt]{article}
+\usepackage[letterpaper,margin=0.5in]{geometry}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{fontspec}
+
+\setmainfont{Linux Libertine O}
+\setsansfont{Linux Biolinum O}
+\setmonofont{Inconsolatazi4-Regular.otf}[
+  BoldFont=Inconsolatazi4-Bold.otf,
+  Extension=.otf,
+  StylisticSet=3
+]
+\newfontfamily\emojifont{Noto Color Emoji}[Renderer=HarfBuzz]
+\newcommand{\parrotemoji}{{\emojifont\normalsize\symbol{"1F99C}}}
+\newcommand{\notemoji}{{\emojifont\normalsize\symbol{"26D4}}}
+
+\newcommand{\parrotimpl}{\parrotemoji}
+\newcommand{\notimpl}{\notemoji}
+
+\pagestyle{empty}
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries Parrot API-to-Backend Mapping}\par
+\vspace{0.3em}
+{\large Conor Hoekstra\enspace$|$\enspace NVIDIA}
+\end{center}
+\vspace{0.5em}
+
+\noindent\begin{minipage}{\textwidth}
+\captionsetup{skip=4pt}
+\captionof{table}{Parrot method mapping (core transforms, masking, and reductions).}
+\label{tab:api-map-1}
+\footnotesize\ttfamily
+\renewcommand{\arraystretch}{1.15}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+\textrm{\textbf{Parrot (C++)}} & \textrm{\textbf{Parrot Python}} & \textrm{\textbf{CUDA C++ backend}} & \textrm{\textbf{cuda.compute backend}} \\
+\midrule
+map(op) & map(op) & thrust::make\_transform\_iterator & iterators.TransformIterator \\
+map2(arr, op) & map2(arr, op) & thrust::make\_zip\_iterator + thrust::make\_transform\_iterator & iterators.ZipIterator + iterators.TransformIterator \\
+map2(scalar, op) & map2(scalar, op) & thrust::make\_transform\_iterator & clone + map(bound\_op) \\
+times(arg) & times(arg) & \parrotimpl\ map2(arg,mul) & \parrotimpl\ map2(arg,mul\_op) \\
+add(arg) & add(arg) & \parrotimpl\ map2(arg,add) & \parrotimpl\ map2(arg,add\_op) \\
+minus(arg) & minus(arg) & \parrotimpl\ map2(arg,minus) & \parrotimpl\ map2(arg,sub\_op) \\
+min(arg) & min(arg) & \parrotimpl\ map2(arg,min) & \parrotimpl\ map2(arg,min\_op) \\
+max(arg) & max(arg) & \parrotimpl\ map2(arg,max) & \parrotimpl\ map2(arg,max\_op) \\
+div(arg) & div(arg) & \parrotimpl\ map2(arg,div) & \parrotimpl\ map2(arg,div\_op) \\
+mod(arg) & mod(arg) & \parrotimpl\ map2(arg,mod) & \parrotimpl\ map2(arg,mod\_op) \\
+idiv(arg) & idiv(arg) & \parrotimpl\ map2(arg,idiv) & \parrotimpl\ map2(arg,idiv\_op) \\
+as<T> & astype(dtype) & \parrotimpl\ map(cast\_functor) & \parrotimpl\ map(cast\_op) \\
+gte(arg) & gte(arg) & \parrotimpl\ map2(arg,gte) & \parrotimpl\ map2(arg,gte\_op) \\
+lte(arg) & lte(arg) & \parrotimpl\ map2(arg,lte) & \parrotimpl\ map2(arg,lte\_op) \\
+gt(arg) & gt(arg) & \parrotimpl\ map2(arg,gt) & \parrotimpl\ map2(arg,gt\_op) \\
+lt(arg) & lt(arg) & \parrotimpl\ map2(arg,lt) & \parrotimpl\ map2(arg,lt\_op) \\
+eq(arg) & eq(arg) & \parrotimpl\ map2(arg,eq) & \parrotimpl\ map2(arg,eq\_op) \\
+neq(arg) & neq(arg) & \parrotimpl\ map2(arg,neq) & \parrotimpl\ map2(arg,neq\_op) \\
+dble() & double() & \parrotimpl\ map(double\_functor) & \parrotimpl\ map(double\_op) \\
+half() & half() & \parrotimpl\ map(half\_functor) & \parrotimpl\ map(half\_op) \\
+abs() & abs() & \parrotimpl\ map(abs\_functor) & \parrotimpl\ map(abs\_op) \\
+log() & log() & \parrotimpl\ map(log\_functor) & \parrotimpl\ map(log\_op) \\
+exp() & exp() & \parrotimpl\ map(exp\_functor) & \parrotimpl\ map(exp\_op) \\
+neg() & neg() & \parrotimpl\ map(negate) & \parrotimpl\ map(neg\_op) \\
+odd() & odd() & \parrotimpl\ map(odd\_functor) & \parrotimpl\ map(odd\_op) \\
+even() & even() & \parrotimpl\ map(even\_functor) & \parrotimpl\ map(even\_op) \\
+sign() & sign() & \parrotimpl\ map(sign\_functor) & \parrotimpl\ map(sign\_op) \\
+sqrt() & sqrt() & \parrotimpl\ map(sqrt\_functor) & \parrotimpl\ map(sqrt\_op) \\
+sq() & sq() & \parrotimpl\ map(sq\_functor) & \parrotimpl\ map(square\_op) \\
+rand() & rand() & zip(index,value) + transform random functor & ZipIterator + TransformIterator random op \\
+map\_adj(op) & map\_adj(op) & thrust::make\_zip\_iterator + thrust::make\_transform\_iterator (zip\_function) & PermutationIterator + ZipIterator + TransformIterator \\
+differ() & differ() & \parrotimpl\ map\_adj(neq) & \parrotimpl\ map\_adj(neq\_op) \\
+deltas() & deltas() & \parrotimpl\ map\_adj(delta) & \parrotimpl\ map\_adj(delta\_op) \\
+keep(mask) & keep(mask) & mask-aware fusion\_array constructor & lazy mask in ParrotArray (\_mask) \\
+filter(pred) & filter(predicate) & thrust::make\_transform\_iterator + \parrotimpl\ keep & algorithms.select \\
+where() & where() & \parrotimpl\ range(size).keep(this) & \parrotimpl\ range(length).keep(self) \\
+gather(indices) & gather(indices) & thrust::make\_permutation\_iterator & iterators.PermutationIterator \\
+reduce<0>(init, op) & reduce(op, init, axis=0) & thrust::reduce & algorithms.reduce\_into \\
+reduce<1>(init, op) & reduce(op, init, axis=1) & \notimpl\ (no axis-1 reduction) & algorithms.segmented\_reduce \\
+reduce<2>(init, op) & reduce(op, init, axis=2) & thrustx::reduce\_by\_n & algorithms.segmented\_reduce \\
+sum<axis>() & sum(axis) & \parrotimpl\ reduce<axis>(0,+) & \parrotimpl\ reduce(+,0,axis) \\
+prod<axis>() & prod(axis) & \parrotimpl\ reduce<axis>(1,*) & \parrotimpl\ reduce(*,1,axis) \\
+maxr<axis>() & maxr/max & \parrotimpl\ reduce<axis>(init,max) & \parrotimpl\ reduce(max,init,axis) \\
+minr<axis>() & minr/min & \parrotimpl\ reduce<axis>(init,min) & \parrotimpl\ reduce(min,init,axis) \\
+any<axis>() & any(axis) & \parrotimpl\ reduce<axis>(init,logical\_or) & \parrotimpl\ reduce(\_reduce\_or,...) \\
+all<axis>() & all(axis) & \parrotimpl\ reduce<axis>(init,logical\_and) & \parrotimpl\ reduce(\_reduce\_and,...) \\
+\bottomrule
+\end{tabularx}
+\end{minipage}
+
+\vspace{1.5em}
+
+\noindent\begin{minipage}{\textwidth}
+\captionsetup{skip=4pt}
+\captionof{table}{Parrot method mapping (scans, shape/rank operations, and products).}
+\label{tab:api-map-2}
+\footnotesize\ttfamily
+\renewcommand{\arraystretch}{1.15}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+\textrm{\textbf{Parrot (C++)}} & \textrm{\textbf{Parrot Python}} & \textrm{\textbf{CUDA C++ backend}} & \textrm{\textbf{cuda.compute backend}} \\
+\midrule
+scan<0>(op) & scan(op, axis=0) & thrust::inclusive\_scan & algorithms.inclusive\_scan \\
+scan<1>(op) & scan(op, axis=1) & \parrotimpl\ transpose().scan<2>().transpose() & \notimpl\ (axis 1 routed same as row-wise in current Python code) \\
+scan<2>(op) & scan(op, axis=2) & thrust::inclusive\_scan\_by\_key & \notimpl\ (no dedicated axis-2 scan kernel path) \\
+sums<axis>() & sums(axis) & \parrotimpl\ scan<axis>(+) & \parrotimpl\ \_scan\_to\_array(+, 0) \\
+prods<axis>() & prods(axis) & \parrotimpl\ scan<axis>(*) & \parrotimpl\ \_scan\_to\_array(*, 1) \\
+mins<axis>() & mins(axis) & \parrotimpl\ scan<axis>(min) & \parrotimpl\ \_scan\_to\_array(min, init) \\
+maxs<axis>() & maxs(axis) & \parrotimpl\ scan<axis>(max) & \parrotimpl\ \_scan\_to\_array(max, init) \\
+alls<axis>() & alls(axis) & \parrotimpl\ scan<axis>(logical\_and) & \parrotimpl\ scan(logical\_and,...) \\
+anys<axis>() & anys(axis) & \parrotimpl\ scan<axis>(logical\_or) & \parrotimpl\ scan(logical\_or,...) \\
+reshape(shape) & reshape(shape) & shape metadata + iterator view truncation & shape metadata update (lazy length/shape change) \\
+cycle(shape) & cycle(shape) & thrustx::make\_cycle\_iterator & \notimpl\ (no direct cycle API in current Python file) \\
+repeat(n) (scalar) & repeat(n) & thrust::make\_constant\_iterator & \parrotimpl\ constant(front(),n) \\
+replicate(int n) & replicate(n) & thrustx::make\_replicate\_iterator & TransformIterator(idx//n) + PermutationIterator \\
+replicate(mask) & \notimpl\ (mask-overload) & materialized scatter + inclusive scan + permutation copy & \notimpl \\
+cross(other) & cross(other) & \parrotimpl\ replicate + cycle + pairs & \parrotimpl\ replicate + gather(mod) + ZipIterator \\
+outer(other, op) & outer(other, op) & thrustx::make\_outer\_iterator & Transform/Permutation/Zip iterator composition \\
+pairs(other) & implicit pair via map2/zip tuple & zip + pair transform iterator & iterators.ZipIterator \\
+enumerate() & enumerate() & \parrotimpl\ pairs(range(size)) & ZipIterator(values, CountingIterator) \\
+transpose() & transpose() & counting + transpose-index transform + permutation iterator & TransformIterator(idx) + PermutationIterator \\
+rev() & rev() & thrust::make\_reverse\_iterator & iterators.ReverseIterator (with collect in some paths) \\
+append(v) & append(v) & thrustx::make\_append\_iterator & index transform + PermutationIterator + TransformIterator \\
+prepend(v) & prepend(v) & thrustx::make\_prepend\_iterator & index transform + PermutationIterator + TransformIterator \\
+\bottomrule
+\end{tabularx}
+\end{minipage}
+
+\end{document}
