@@ -16,48 +16,6 @@ try:
     import cuda.compute.algorithms as algorithms
     import cuda.compute.iterators as iterators
     import cuda.compute.types as cccl_types
-    from cuda.compute._jit import _infer_signature as _cccl_infer_signature
-    from cuda.compute import _jit as _cccl_jit
-
-    def _safe_resolve_iterator_value_types(it, _visited=None):
-        """Patched version that skips already-resolved iterators (avoids
-        corruption when the same object is referenced by multiple parents).
-        Also skips iterators marked by _get_composed_iterator (their types
-        were eagerly inferred during composition)."""
-        from cuda.compute.iterators._iterators import TransformIteratorKind
-
-        if _visited is None:
-            _visited = set()
-        it_id = id(it)
-        if it_id in _visited:
-            return
-        _visited.add(it_id)
-
-        # Skip iterators whose value types were already eagerly resolved
-        # during _get_composed_iterator (marked with _parrot_resolved).
-        if getattr(it, "_parrot_resolved", False):
-            return
-
-        children = getattr(it, "children", ())
-        for child in children:
-            _safe_resolve_iterator_value_types(child, _visited)
-
-        kind = getattr(it, "kind", None)
-        if isinstance(kind, TransformIteratorKind):
-            op_func = kind.op._func
-            _cccl_jit._ensure_function_structs_registered(op_func)
-            if kind.io_kind == "input":
-                _, output_td = _cccl_infer_signature(op_func, (it.value_type,))
-                it.value_type = output_td
-            else:
-                input_tds, _ = _cccl_infer_signature(op_func)
-                it.value_type = input_tds[0]
-
-        rebuild_value_type = getattr(it, "_rebuild_value_type_from_children", None)
-        if rebuild_value_type is not None:
-            rebuild_value_type()
-
-    _cccl_jit._resolve_iterator_value_types = _safe_resolve_iterator_value_types
 except ImportError as e:
     raise ImportError(
         "cuda.compute is required but not available.\n"
@@ -66,109 +24,6 @@ except ImportError as e:
         "2. Install CUDA toolkit >= 12.0 from NVIDIA\n"
         f"Original error: {e}"
     ) from e
-
-
-# ---------------------------------------------------------------------------
-# Monkey-patch cuda.compute's TransformIterator factory to cache the expensive
-# class generation + JIT compilation. The factory calls numba.cuda.jit() and
-# inspect.signature() and dynamically creates a class on every call. For the
-# same base iterator *type* + same transform function, the generated class is
-# structurally identical. We cache the class and re-instantiate it cheaply.
-#
-# PermutationIterator and ZipIterator already cache their JIT methods internally
-# via @cache_with_key, so only TransformIterator needs patching.
-# ---------------------------------------------------------------------------
-
-_ti_class_cache = {}  # (iter_type_key, func_id, io_kind) -> (class, jit_op, ...)
-
-
-def _iter_type_key(it):
-    """Structural type key for an iterator.
-
-    Uses the iterator's ``kind`` attribute when available, which encodes the
-    full structural type of the iterator tree (including nested iterators,
-    dtypes, and pointer kinds).  This ensures that structurally identical
-    iterator compositions produce the same cache key even when they are
-    different object instances.  Falls back to class name + dtype for plain
-    arrays (e.g. CuPy) that don't have a ``kind`` attribute.
-
-    We use hash(kind) rather than str(kind) because IteratorKind subclasses
-    implement __hash__/__eq__ based on structural identity, whereas __repr__
-    may access attributes that are not always set (e.g. PermutationIteratorKind
-    in cuda-cccl 0.5.1 drops value_type in __init__ but references it in
-    __repr__).
-    """
-    kind = getattr(it, "kind", None)
-    if kind is not None:
-        return (type(kind).__name__, hash(kind))
-    cls = type(it).__name__
-    if hasattr(it, "dtype"):
-        return (cls, str(it.dtype))
-    return (cls,)
-
-
-def _patch_transform_iterator():
-    """Patch TransformIterator factory to cache the generated class + JIT'd op.
-
-    The original factory runs numba.cuda.jit() on the base iterator's advance/
-    dereference methods + the op function, creates an intrinsic, and defines a
-    dynamic class — all on every call. For the same base iterator *type* + same
-    op function, the class is structurally identical. We cache the class and the
-    JIT'd CUDADispatcher for the op, then re-instantiate the class cheaply.
-    """
-    from cuda.compute.iterators import _iterators as _iter_mod
-    from cuda.compute.iterators import _factories as _fact_mod
-    from cuda.compute._caching import CachableFunction as _CachableFunction
-    from cuda.compute.iterators._iterators import (
-        IteratorState,
-        TransformIteratorKind,
-        pointer,
-    )
-    from numba.core import types as numba_core_types
-
-    _orig_make_transform = _iter_mod.make_transform_iterator
-
-    def _cached_make_transform(it, op, io_kind):
-        key = (_iter_type_key(it), id(op), io_kind)
-        cached = _ti_class_cache.get(key)
-        if cached is not None:
-            ti_cls, jit_op, value_type, state_type = cached
-            # Convert array to pointer like the original factory does
-            if hasattr(it, "__cuda_array_interface__"):
-                it = pointer(it)
-            # Bypass __init__ entirely: create an empty instance and copy the
-            # cached type metadata, only updating the cvalue from the new base
-            # iterator.
-            obj = object.__new__(ti_cls)
-            obj._it = it
-            obj._op = _CachableFunction(jit_op.py_func)
-            obj.cvalue = it.cvalue
-            obj.state_type = it.state_type
-            obj.value_type = value_type
-            obj._kind = TransformIteratorKind(it.kind, obj._op, io_kind)
-            obj._state = IteratorState(it.cvalue)
-            return obj
-
-        # Miss: call original factory (handles array conversion internally)
-        result = _orig_make_transform(it, op, io_kind)
-
-        # Cache the generated class + JIT'd op + resolved types for re-use.
-        from numba import cuda as numba_cuda
-
-        jit_op = numba_cuda.jit(op, device=True)
-        _ti_class_cache[key] = (
-            type(result),
-            jit_op,
-            result.value_type,
-            result.state_type,
-        )
-        return result
-
-    _iter_mod.make_transform_iterator = _cached_make_transform
-    _fact_mod.make_transform_iterator = _cached_make_transform
-
-
-_patch_transform_iterator()
 
 
 # Mapping from binary ops to their tuple versions will be populated after ops are defined
@@ -472,14 +327,8 @@ class ParrotArray:
     def _get_composed_iterator(self):
         """Get the final iterator with all transforms applied.
 
-        After eagerly inferring each transform's output type, we set value_type
-        on the underlying iterator BEFORE wrapping it. This is critical because
-        make_transform_iterator captures alloca_temp_for_underlying_type from
-        it.value_type at closure creation time. Without this, the alloca is
-        sized for the wrong type (e.g. ZipValue instead of int32).
-
-        We save/restore value_type on the underlying so it can still be resolved
-        correctly by _resolve_iterator_value_types later.
+        Each TransformIterator eagerly infers its output value_type from the
+        underlying iterator's value_type, so chaining works naturally.
         """
         if self._iterator is None:
             raise ValueError("No data source. Call range() or constant() first.")
@@ -487,43 +336,13 @@ class ParrotArray:
         if not self._transforms:
             return self._iterator
 
-        # Check cache: reuse if transforms haven't changed
         cache_key = (id(self._iterator), len(self._transforms))
         if hasattr(self, "_composed_cache") and self._composed_cache[0] == cache_key:
             return self._composed_cache[1]
 
         final_iterator = self._iterator
-        prev_output_td = None
-        prev_saved_vt = None
         for transform in self._transforms:
-            input_td = (
-                final_iterator.value_type
-                if hasattr(final_iterator, "value_type")
-                else cccl_types.from_numpy_dtype(self.dtype)
-            )
-            if prev_output_td is not None:
-                input_td = prev_output_td
-
-            if prev_output_td is not None and hasattr(final_iterator, "value_type"):
-                prev_saved_vt = final_iterator.value_type
-                final_iterator.value_type = prev_output_td
-
             final_iterator = iterators.TransformIterator(final_iterator, transform)
-
-            if prev_saved_vt is not None:
-                final_iterator._it.value_type = prev_saved_vt
-                prev_saved_vt = None
-
-            final_iterator.value_type = input_td
-            _, prev_output_td = _cccl_infer_signature(transform, (input_td,))
-            final_iterator._parrot_resolved = True
-
-        # Set the outermost iterator's value_type to the final OUTPUT type
-        # so that parent iterators (ZipIterator, PermutationIterator) and
-        # algorithms see the correct type. Inner iterators keep their INPUT
-        # types and are marked _parrot_resolved to skip re-inference.
-        if prev_output_td is not None:
-            final_iterator.value_type = prev_output_td
 
         self._composed_cache = (cache_key, final_iterator)
         return final_iterator
@@ -548,9 +367,9 @@ class ParrotArray:
             return it, lambda: None
         output_td = cccl_types.from_numpy_dtype(self.dtype)
         if it.value_type != output_td:
-            saved = it.value_type
-            it.value_type = output_td
-            return it, lambda: setattr(it, "value_type", saved)
+            saved = it._value_type
+            it._value_type = output_td
+            return it, lambda: setattr(it, "_value_type", saved)
         return it, lambda: None
 
     def range(self, n: int, dtype=np.int32):
@@ -645,15 +464,16 @@ class ParrotArray:
         # Perform the actual selection (copy_if equivalent)
         mask = self._mask
 
+        # Materialize mask to a raw array so the select kernel sees correct types
+        d_mask = mask.collect()
+
         # Use module-level predicate for JIT caching
         pred = _keep_pred
         d_out = cp.empty(self.length, dtype=self.dtype)
         d_num_selected = cp.empty(1, dtype=np.int32)
         self_it, restore_self = self._get_nestable_iterator()
-        mask_it, restore_mask = mask._get_nestable_iterator()
-        in_iter = iterators.ZipIterator(self_it, mask_it)
+        in_iter = iterators.ZipIterator(self_it, d_mask)
         restore_self()
-        restore_mask()
         out_iter = iterators.ZipIterator(d_out, iterators.DiscardIterator())
 
         algorithms.select(in_iter, out_iter, d_num_selected, pred, self.length)
@@ -1212,41 +1032,38 @@ class ParrotArray:
         Returns:
             A new ParrotArray with length-1 elements containing op(arr[i], arr[i+1])
 
-        LAZY operation for known ops when the source is a raw CuPy array.
+        LAZY operation — materializes input first to ensure correct random access
+        via PermutationIterator.
         """
-        # Apply mask if present before map_adj
         if self.has_mask:
             return self._apply_mask_if_needed().map_adj(op)
 
         if self.length < 2:
             return self._empty_result()
 
-        # Get the tuple version of the binary operation
         zip_op = _OP_TO_ZIP.get(op)
         if zip_op is None:
             raise ValueError(
                 f"map_adj only supports known binary ops: {', '.join(op.__name__ for op in _OP_TO_ZIP.keys())}"
             )
 
-        # Lazy zip+transform over the composed iterator, using permutation
-        # to avoid relying on iterator + offset support.
+        # Materialize so PermutationIterator has a raw array for random access
+        d_data = self.collect()
         tuple_op = self._sanitize_op(zip_op)
-        base_iter, restore_base = self._get_nestable_iterator()
 
-        # Use module-level _plus_one for JIT caching
         idx_iter = iterators.CountingIterator(np.int32(0))
         idx_next_iter = iterators.TransformIterator(
             iterators.CountingIterator(np.int32(0)), _plus_one
         )
 
-        iter_a = iterators.PermutationIterator(base_iter, idx_iter)
-        iter_b = iterators.PermutationIterator(base_iter, idx_next_iter)
+        iter_a = iterators.PermutationIterator(d_data, idx_iter)
+        iter_b = iterators.PermutationIterator(d_data, idx_next_iter)
         zip_iter = iterators.ZipIterator(iter_a, iter_b)
-        restore_base()
 
         result = ParrotArray(iterator=zip_iter, dtype=self.dtype)
         result.length = self.length - 1
         result._transforms.append(tuple_op)
+        result._base_cupy = d_data
         return result
 
     def differ(self):
@@ -1281,29 +1098,27 @@ class ParrotArray:
             return result
 
         size = self.length
-        base_iter, restore_base = self._get_nestable_iterator()
+        d_data = self.collect()
         prepend_value = self.dtype(value)
 
-        # Map output indices to source indices; idx 0 uses a safe base index.
         def prepend_index_op(idx):
             return idx - 1 if idx > 0 else 0
 
-        # Select between prepended value and base value.
         def prepend_value_op(t):
             return prepend_value if t[0] == 0 else t[1]
 
         index_iter = iterators.TransformIterator(
             iterators.CountingIterator(np.int32(0)), prepend_index_op
         )
-        perm_iter = iterators.PermutationIterator(base_iter, index_iter)
+        perm_iter = iterators.PermutationIterator(d_data, index_iter)
         zip_iter = iterators.ZipIterator(
             iterators.CountingIterator(np.int32(0)), perm_iter
         )
-        restore_base()
         prepend_iter = iterators.TransformIterator(zip_iter, prepend_value_op)
 
         result = ParrotArray(iterator=prepend_iter, dtype=self.dtype)
         result.length = size + 1
+        result._base_cupy = d_data
         return result
 
     def append(self, value):
@@ -1322,29 +1137,27 @@ class ParrotArray:
             return result
 
         size = self.length
-        base_iter, restore_base = self._get_nestable_iterator()
+        d_data = self.collect()
         append_value = self.dtype(value)
 
-        # Map output indices to source indices; idx == size uses a safe base index.
         def append_index_op(idx):
             return idx if idx < size else 0
 
-        # Select between base value and appended value.
         def append_value_op(t):
             return t[1] if t[0] < size else append_value
 
         index_iter = iterators.TransformIterator(
             iterators.CountingIterator(np.int32(0)), append_index_op
         )
-        perm_iter = iterators.PermutationIterator(base_iter, index_iter)
+        perm_iter = iterators.PermutationIterator(d_data, index_iter)
         zip_iter = iterators.ZipIterator(
             iterators.CountingIterator(np.int32(0)), perm_iter
         )
-        restore_base()
         append_iter = iterators.TransformIterator(zip_iter, append_value_op)
 
         result = ParrotArray(iterator=append_iter, dtype=self.dtype)
         result.length = size + 1
+        result._base_cupy = d_data
         return result
 
     def where(self):
@@ -1939,23 +1752,22 @@ class ParrotArray:
         if n == 1:
             return self._clone()
 
-        base_iter, restore_base = self._get_nestable_iterator()
+        # Materialize so PermutationIterator has a raw array for random access
+        d_data = self.collect()
 
-        # Create index transform: idx -> idx // n
         def replicate_index_op(idx):
             return idx // n
 
         replicate_index_op.__annotations__ = {"idx": np.int32, "return": np.int32}
 
-        # Create the permutation iterator
         index_iter = iterators.TransformIterator(
             iterators.CountingIterator(np.int32(0)), replicate_index_op
         )
-        replicate_iter = iterators.PermutationIterator(base_iter, index_iter)
-        restore_base()
+        replicate_iter = iterators.PermutationIterator(d_data, index_iter)
 
         result = ParrotArray(iterator=replicate_iter, dtype=self.dtype)
         result.length = self.length * n
+        result._base_cupy = d_data
         return result
 
     def repeat(self, n: int):
@@ -2158,13 +1970,10 @@ class ParrotArray:
 
         zip_op = self._sanitize_op(zip_op)
 
-        self_iter, restore_self = self._get_nestable_iterator()
-        other_iter, restore_other = other._get_nestable_iterator()
+        # Materialize both inputs so PermutationIterator has raw arrays
+        d_self = self.collect()
+        d_other = other.collect()
 
-        # Create index transforms for row and column
-        # For a linear index idx in the output matrix:
-        #   row = idx // other_size (which element from self)
-        #   col = idx % other_size  (which element from other)
         def row_index_op(idx):
             return idx // other_size
 
@@ -2174,7 +1983,6 @@ class ParrotArray:
         row_index_op.__annotations__ = {"idx": np.int32, "return": np.int32}
         col_index_op.__annotations__ = {"idx": np.int32, "return": np.int32}
 
-        # Create the index iterators - need separate counting iterators for each
         row_indices = iterators.TransformIterator(
             iterators.CountingIterator(np.int32(0)), row_index_op
         )
@@ -2182,19 +1990,16 @@ class ParrotArray:
             iterators.CountingIterator(np.int32(0)), col_index_op
         )
 
-        # Gather from self and other using permutation iterators
-        self_gathered = iterators.PermutationIterator(self_iter, row_indices)
-        other_gathered = iterators.PermutationIterator(other_iter, col_indices)
-        restore_self()
-        restore_other()
+        self_gathered = iterators.PermutationIterator(d_self, row_indices)
+        other_gathered = iterators.PermutationIterator(d_other, col_indices)
 
-        # Zip the gathered values and apply the binary operation
         zip_iter = iterators.ZipIterator(self_gathered, other_gathered)
         outer_iter = iterators.TransformIterator(zip_iter, zip_op)
 
         result = ParrotArray(iterator=outer_iter, dtype=self.dtype)
         result.length = this_size * other_size
         result._shape = (this_size, other_size)
+        result._base_cupy = d_self
         return result
 
 
