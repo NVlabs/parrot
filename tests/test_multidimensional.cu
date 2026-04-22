@@ -610,6 +610,40 @@ TEST_CASE("ParrotTest - ScanColTest") {
     CHECK(check_match(scan_col_maxs, expected_col_maxs));
 }
 
+// Test reduce with Axis=1 (column-wise)
+TEST_CASE("ParrotTest - ReduceColTest") {
+    auto matrix = parrot::array({1, 2, 3, 4, 5, 6, 7, 8, 9}).reshape({3, 3});
+
+    // Column-wise sum: one value per column
+    auto col_sums          = matrix.sum<1>();
+    auto expected_col_sums = parrot::array({1 + 4 + 7, 2 + 5 + 8, 3 + 6 + 9});
+    CHECK(check_match(col_sums, expected_col_sums));
+
+    // Column-wise max
+    auto col_maxs          = matrix.maxr<1>();
+    auto expected_col_maxs = parrot::array({7, 8, 9});
+    CHECK(check_match(col_maxs, expected_col_maxs));
+
+    // Column-wise min
+    auto col_mins          = matrix.minr<1>();
+    auto expected_col_mins = parrot::array({1, 2, 3});
+    CHECK(check_match(col_mins, expected_col_mins));
+
+    // Generic reduce with custom op (product)
+    auto col_prods          = matrix.reduce<1>(1, parrot::mul{});
+    auto expected_col_prods = parrot::array({1 * 4 * 7, 2 * 5 * 8, 3 * 6 * 9});
+    CHECK(check_match(col_prods, expected_col_prods));
+}
+
+// Column-wise reduce must reject non-2D arrays
+TEST_CASE("ParrotTest - ReduceColInvalidRankTest") {
+    auto arr_1d = parrot::array({1, 2, 3, 4});
+    CHECK_THROWS_AS(static_cast<void>(arr_1d.sum<1>()), std::runtime_error);
+
+    auto arr_3d = parrot::array({1, 2, 3, 4, 5, 6, 7, 8}).reshape({2, 2, 2});
+    CHECK_THROWS_AS(static_cast<void>(arr_3d.sum<1>()), std::runtime_error);
+}
+
 // ========================================================================
 // Shape Preservation Tests - Binary operations between different dimensions
 // ========================================================================

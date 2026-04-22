@@ -1475,7 +1475,8 @@ class fusion_array {
 
     /**
      * @brief Generic reduction with custom binary operation (eager operation)
-     * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @tparam Axis The axis along which to reduce (0=all elements,
+     * 1=column-wise, 2=row-wise)
      * @param init The initial value for the reduction
      * @param op The binary operation to apply for reduction
      * @param axis Optional integral_constant parameter for axis (allows 2_ic
@@ -1499,6 +1500,16 @@ class fusion_array {
               cuda::make_constant_iterator(result) + 1,
               nullptr,
               std::vector<int>{});
+        } else if constexpr (Axis == 1) {
+            // Column-wise reduction (for 2D arrays)
+            if (rank() != 2) {
+                throw std::runtime_error(
+                  "Cannot perform column-wise reduction on array with "
+                  "rank != 2");
+            }
+            // Transpose, then perform row-wise reduction on the transposed
+            // array. The result is a 1D array of length num_cols (original).
+            return this->transpose().template reduce<2>(init, op);
         } else if constexpr (Axis == 2) {
             // Row-wise reduction (for 2D arrays)
             if (_shape.size() < 2) {
@@ -1526,8 +1537,8 @@ class fusion_array {
               result_vec,
               std::vector<int>{num_rows});
         } else {
-            static_assert(Axis == 0 || Axis == 2,
-                          "Invalid axis value. Must be 0 or 2.");
+            static_assert(Axis == 0 || Axis == 1 || Axis == 2,
+                          "Invalid axis value. Must be 0, 1, or 2.");
             // This will never be reached due to static_assert, but needed for
             // compilation
             return fusion_array<typename thrust::device_vector<T>::iterator>();
@@ -1536,7 +1547,8 @@ class fusion_array {
 
     /**
      * @brief Maximum reduction (eager operation)
-     * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @tparam Axis The axis along which to reduce (0=all elements,
+     * 1=column-wise, 2=row-wise)
      * @param axis Optional integral_constant parameter for axis (allows 2_ic
      * syntax)
      * @return A fusion_array containing the maximum value(s)
@@ -1550,7 +1562,8 @@ class fusion_array {
 
     /**
      * @brief Minimum reduction (eager operation)
-     * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @tparam Axis The axis along which to reduce (0=all elements,
+     * 1=column-wise, 2=row-wise)
      * @param axis Optional integral_constant parameter for axis (allows 2_ic
      * syntax)
      * @return A fusion_array containing the minimum value(s)
@@ -1564,7 +1577,8 @@ class fusion_array {
 
     /**
      * @brief Sum reduction (eager operation)
-     * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @tparam Axis The axis along which to reduce (0=all elements,
+     * 1=column-wise, 2=row-wise)
      * @param axis Optional integral_constant parameter for axis (allows 2_ic
      * syntax)
      * @return A fusion_array containing the sum of elements
@@ -1582,7 +1596,8 @@ class fusion_array {
 
     /**
      * @brief Check if any element is non-zero (eager operation)
-     * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @tparam Axis The axis along which to reduce (0=all elements,
+     * 1=column-wise, 2=row-wise)
      * @param axis Optional integral_constant parameter for axis (allows 2_ic
      * syntax)
      * @return A fusion_array containing true if any element is non-zero, false
@@ -1596,7 +1611,8 @@ class fusion_array {
 
     /**
      * @brief Check if all elements are non-zero (eager operation)
-     * @tparam Axis The axis along which to reduce (0=all elements, 2=row-wise)
+     * @tparam Axis The axis along which to reduce (0=all elements,
+     * 1=column-wise, 2=row-wise)
      * @param axis Optional integral_constant parameter for axis (allows 2_ic
      * syntax)
      * @return A fusion_array containing true if all elements are non-zero,
