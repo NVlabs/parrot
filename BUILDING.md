@@ -36,8 +36,8 @@ export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
 # For NVIDIA HPC SDK installations
-# export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/cuda
-# export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin:$PATH
+# export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda
+# export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/compilers/bin:$PATH
 ```
 
 Reload your shell configuration:
@@ -65,7 +65,7 @@ If CMake cannot find the NVCC compiler:
    ```bash
    cmake -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc ..
    # or for HPC SDK:
-   cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/nvcc ..
+   cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/compilers/bin/nvcc ..
    ```
 
 2. **Check NVCC is in PATH**:

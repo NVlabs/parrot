@@ -1,0 +1,102 @@
+name: Check HPC SDK Update
+
+on:
+  schedule:
+    # Runs daily at 12:00 UTC
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-hpc-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine current pinned HPC SDK version
+        id: current
+        run: |
+          current_version=$(grep -oP 'hpc_sdk/Linux_x86_64/\K[0-9]+\.[0-9]+' CMakeLists.txt | head -n1)
+          if [ -z "$current_version" ]; then
+            echo "Could not determine current HPC SDK version from CMakeLists.txt" >&2
+            exit 1
+          fi
+          echo "Current HPC SDK version: $current_version"
+          echo "version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest HPC SDK release
+        id: latest
+        run: |
+          html=$(curl -fsSL https://developer.nvidia.com/hpc-sdk/releases)
+          # The page lists the newest version first under "Current Release".
+          latest_version=$(echo "$html" \
+            | grep -oE 'HPC SDK [0-9]+\.[0-9]+' \
+            | head -n1 \
+            | awk '{print $3}')
+          if [ -z "$latest_version" ]; then
+            echo "Failed to parse latest HPC SDK version from releases page" >&2
+            exit 1
+          fi
+          echo "Latest HPC SDK version: $latest_version"
+          echo "version=$latest_version" >> "$GITHUB_OUTPUT"
+
+      - name: Compare versions
+        id: compare
+        run: |
+          current="${{ steps.current.outputs.version }}"
+          latest="${{ steps.latest.outputs.version }}"
+          if [ "$current" = "$latest" ]; then
+            echo "HPC SDK is already up to date ($current)."
+            echo "outdated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+          if [ "$newest" = "$latest" ] && [ "$latest" != "$current" ]; then
+            echo "A newer HPC SDK release is available: $latest (currently pinned to $current)."
+            echo "outdated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Pinned HPC SDK version ($current) is not older than the latest release ($latest)."
+            echo "outdated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update issue for newer HPC SDK release
+        if: steps.compare.outputs.outdated == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_VERSION: ${{ steps.current.outputs.version }}
+          LATEST_VERSION: ${{ steps.latest.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          title="Upgrade HPC SDK to ${LATEST_VERSION}"
+          body=$(cat <<EOF
+          A newer release of the [NVIDIA HPC SDK](https://developer.nvidia.com/hpc-sdk/releases) is available.
+
+          - **Current pinned version:** \`${CURRENT_VERSION}\`
+          - **Latest release:** \`${LATEST_VERSION}\`
+
+          Please consider upgrading references from \`Linux_x86_64/${CURRENT_VERSION}\` to \`Linux_x86_64/${LATEST_VERSION}\` in \`CMakeLists.txt\`, \`BUILDING.md\`, the CI workflows, and \`scripts/run-examples.sh\`, and verifying that the build and tests still pass. Note that the bundled CUDA subversion (e.g. \`cuda/13.1\`) may also change between HPC SDK releases.
+
+          _This issue was opened automatically by the \`Check HPC SDK Update\` workflow._
+          EOF
+          )
+
+          existing=$(gh issue list \
+            --repo "$REPO" \
+            --state open \
+            --search "\"$title\" in:title" \
+            --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" \
+            | head -n1)
+
+          if [ -n "$existing" ]; then
+            echo "Issue already exists: #$existing"
+          else
+            gh issue create \
+              --repo "$REPO" \
+              --title "$title" \
+              --body "$body"
+          fi

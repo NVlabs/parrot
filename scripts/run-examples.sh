@@ -363,7 +363,7 @@ find_nvcc() {
     fi
     
     # Check the same nvcc that CMake found (from the build output)
-    local cmake_nvcc="/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/nvcc"
+    local cmake_nvcc="/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/compilers/bin/nvcc"
     if [[ -x "$cmake_nvcc" ]]; then
         echo "$cmake_nvcc"
         return 0
