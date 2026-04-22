@@ -1706,6 +1706,64 @@ class ParrotArray:
         """
         return self.reshape((self.length,))
 
+    def cycle(self, shape):
+        """Cycle the array data to fill ``shape`` (lazy if expanding).
+
+        Mirrors C++ ``fusion_array::cycle``:
+          * If ``prod(shape) > current_size``, the data is cycled (``i % N``)
+            to fill the new shape — backed by a lazy PermutationIterator so no
+            data is copied up-front.
+          * If ``prod(shape) <= current_size``, this behaves like
+            :meth:`reshape` (a view truncation; no iterator composition).
+
+        For masked arrays, the mask is applied first (materializing the filter).
+
+        Args:
+            shape: An int or tuple/list of ints specifying the target shape.
+
+        Returns:
+            A new ParrotArray with the specified shape.
+
+        Raises:
+            ValueError: If the current array is empty or ``prod(shape) == 0``.
+        """
+        if self.has_mask:
+            return self._apply_mask_if_needed().cycle(shape)
+
+        if isinstance(shape, int):
+            shape = (shape,)
+        shape = tuple(shape)
+
+        total_size = functools.reduce(lambda x, y: x * y, shape, 1)
+        current_size = self.length
+
+        if current_size == 0 or total_size == 0:
+            raise ValueError(
+                "cycle: current_size and total_size must be > 0"
+            )
+
+        if total_size <= current_size:
+            return self.reshape(shape)
+
+        _n = current_size
+
+        def cycle_idx(i):
+            return i % _n
+
+        cycle_idx.__annotations__ = {"i": np.int32, "return": np.int32}
+
+        base_iter, restore_base = self._get_nestable_iterator()
+        index_iter = iterators.TransformIterator(
+            iterators.CountingIterator(np.int32(0)), cycle_idx
+        )
+        cycle_iter = iterators.PermutationIterator(base_iter, index_iter)
+        restore_base()
+
+        result = ParrotArray(iterator=cycle_iter, dtype=self.dtype)
+        result.length = total_size
+        result._shape = shape
+        return result
+
     def nrows(self):
         """Get the number of rows in a 2D array.
 
@@ -1770,27 +1828,49 @@ class ParrotArray:
         result._shape = self._shape
         return result
 
-    def replicate(self, n: int):
-        """Replicate each element n times.
+    def replicate(self, arg):
+        """Replicate each element by ``arg``.
 
-        LAZY operation - creates a transform iterator that repeats each element.
+        Two overloads mirroring C++ ``fusion_array::replicate``:
 
-        For example: [a, b, c].replicate(2) -> [a, a, b, b, c, c]
+        * ``replicate(n: int)`` — each element is repeated ``n`` times (LAZY,
+          backed by a PermutationIterator).  For ``[a, b, c].replicate(2)``
+          this yields ``[a, a, b, b, c, c]``.  Useful for broadcasting
+          row-wise reductions back to full matrix size.
 
-        This is useful for broadcasting row-wise reduction results back to
-        full matrix size (e.g., for softmax normalization).
+        * ``replicate(mask: ParrotArray)`` — element ``i`` is repeated
+          ``mask[i]`` times (MATERIALIZING, via ``cupy.repeat``).  For
+          ``[1, 2, 3].replicate([2, 1, 3])`` this yields
+          ``[1, 1, 2, 3, 3, 3]``.  cuda.compute does not expose a
+          ``scatter_if``/segmented-scan primitive, so this overload uses
+          CuPy's native ``repeat`` kernel to compute the gather pattern.
 
-        For masked arrays, the mask is applied first (materializing the filter).
+        For masked (this-side) arrays, the mask is applied first.
 
         Args:
-            n: Number of times to repeat each element
+            arg: Either a positive int (scalar count) or a ParrotArray of
+                non-negative integer counts matching ``self.length``.
 
         Returns:
-            A new ParrotArray with length * n elements
+            A new ParrotArray with the replicated elements.
+
+        Raises:
+            ValueError: If ``arg`` is a non-positive int; or a mask with the
+                wrong length or negative values.
+            TypeError: If ``arg`` is not an int or ParrotArray.
         """
-        # Apply mask if present before replicate
         if self.has_mask:
-            return self._apply_mask_if_needed().replicate(n)
+            return self._apply_mask_if_needed().replicate(arg)
+
+        if isinstance(arg, ParrotArray):
+            return self._replicate_by_mask(arg)
+
+        if not isinstance(arg, (int, np.integer)):
+            raise TypeError(
+                "replicate: expected int or ParrotArray, got "
+                f"{type(arg).__name__}"
+            )
+        n = int(arg)
 
         if n <= 0:
             raise ValueError("replicate: n must be positive")
@@ -1814,6 +1894,49 @@ class ParrotArray:
         result = ParrotArray(iterator=replicate_iter, dtype=self.dtype)
         result.length = self.length * n
         result._base_cupy = d_data
+        return result
+
+    def _replicate_by_mask(self, mask: "ParrotArray") -> "ParrotArray":
+        """Mask-based replicate (materializing): element i repeated mask[i] times.
+
+        Implementation note: cuda.compute lacks ``scatter_if``, so the
+        scatter+scan-max trick used in the C++ backend is not directly
+        available here.  Instead we use CuPy's ``cp.repeat`` — a single
+        optimized native kernel that computes the same gather pattern.
+        """
+        if mask.has_mask:
+            return self._replicate_by_mask(mask._apply_mask_if_needed())
+
+        if self.length != mask.length:
+            raise ValueError(
+                f"replicate: mask size {mask.length} must match "
+                f"array size {self.length}"
+            )
+
+        d_mask = mask.collect()
+        if not isinstance(d_mask, cp.ndarray):
+            d_mask = cp.asarray(d_mask)
+        d_mask = d_mask.reshape(-1)
+
+        if self.length > 0 and int(d_mask.min().get()) < 0:
+            raise ValueError("replicate: mask values must be non-negative")
+
+        d_src = self.collect()
+        if not isinstance(d_src, cp.ndarray):
+            d_src = cp.asarray(d_src)
+        d_src = d_src.reshape(-1)
+
+        # CuPy's repeat only accepts ``int``, ``list``, or ``tuple`` for the
+        # ``repeats`` argument (neither cupy.ndarray nor numpy.ndarray work),
+        # so we materialize the mask to a Python list on the host. The actual
+        # gather still happens on-device via CuPy's internal kernel; since
+        # replicate(mask) is a materializing op, this host copy is acceptable.
+        h_mask = d_mask.tolist()
+        d_out = cp.repeat(d_src, h_mask)
+
+        result = ParrotArray(data=d_out, dtype=self.dtype)
+        result._iterator = d_out
+        result.length = int(d_out.size)
         return result
 
     def repeat(self, n: int):

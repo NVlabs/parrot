@@ -37,7 +37,7 @@
 \label{tab:api-map-1}
 \footnotesize\ttfamily
 \renewcommand{\arraystretch}{1.15}
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\begin{tabularx}{\textwidth}{ll>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
 \toprule
 \textrm{\textbf{Parrot (C++)}} & \textrm{\textbf{Parrot Python}} & \textrm{\textbf{CUDA C++ backend}} & \textrm{\textbf{cuda.compute backend}} \\
 \midrule
@@ -99,7 +99,7 @@ all<axis>() & all(axis) & \parrotimpl\ reduce<axis>(init,logical\_and) & \parrot
 \label{tab:api-map-2}
 \footnotesize\ttfamily
 \renewcommand{\arraystretch}{1.15}
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\begin{tabularx}{\textwidth}{ll>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
 \toprule
 \textrm{\textbf{Parrot (C++)}} & \textrm{\textbf{Parrot Python}} & \textrm{\textbf{CUDA C++ backend}} & \textrm{\textbf{cuda.compute backend}} \\
 \midrule
@@ -113,10 +113,10 @@ maxs<axis>() & maxs(axis) & \parrotimpl\ scan<axis>(max) & \parrotimpl\ \_scan\_
 alls<axis>() & alls(axis) & \parrotimpl\ scan<axis>(logical\_and) & \parrotimpl\ scan(logical\_and,...) \\
 anys<axis>() & anys(axis) & \parrotimpl\ scan<axis>(logical\_or) & \parrotimpl\ scan(logical\_or,...) \\
 reshape(shape) & reshape(shape) & shape metadata + iterator view truncation & shape metadata update (lazy length/shape change) \\
-cycle(shape) & cycle(shape) & thrustx::make\_cycle\_iterator & \notimpl\ (no direct cycle API in current Python file) \\
+cycle(shape) & cycle(shape) & thrustx::make\_cycle\_iterator & PermutationIterator(idx \% N) (reshape when shrinking) \\
 repeat(n) (scalar) & repeat(n) & thrust::make\_constant\_iterator & \parrotimpl\ constant(front(),n) \\
 replicate(int n) & replicate(n) & thrustx::make\_replicate\_iterator & TransformIterator(idx//n) + PermutationIterator \\
-replicate(mask) & \notimpl\ (mask-overload) & materialized scatter + inclusive scan + permutation copy & \notimpl \\
+replicate(mask) & replicate(mask) & materialized scatter + inclusive scan + permutation copy & \parrotimpl\ cupy.repeat (no scatter\_if in cuda.compute) \\
 cross(other) & cross(other) & \parrotimpl\ replicate + cycle + pairs & \parrotimpl\ replicate + gather(mod) + ZipIterator \\
 outer(other, op) & outer(other, op) & thrustx::make\_outer\_iterator & Transform/Permutation/Zip iterator \\
 pairs(other) & pairs(other) & zip + pair transform iterator & iterators.ZipIterator \\

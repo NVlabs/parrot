@@ -1163,6 +1163,117 @@ class TestReplicate:
         assert result.to_host() == expected
 
 
+class TestReplicateMask:
+    """Tests for replicate(mask) - the mask-based overload."""
+
+    def test_replicate_mask_basic(self):
+        """Element i repeated mask[i] times."""
+        arr = parrot.array([1, 2, 3])
+        mask = parrot.array([2, 1, 3])
+        # [1, 1, 2, 3, 3, 3]
+        assert arr.replicate(mask).to_host() == [1, 1, 2, 3, 3, 3]
+
+    def test_replicate_mask_uniform(self):
+        """Uniform mask behaves like the scalar overload."""
+        arr = parrot.array([4, 5])
+        mask = parrot.array([3, 3])
+        assert arr.replicate(mask).to_host() == [4, 4, 4, 5, 5, 5]
+
+    def test_replicate_mask_with_zeros(self):
+        """Zero mask entries drop the corresponding element."""
+        arr = parrot.array([10, 20, 30, 40])
+        mask = parrot.array([0, 2, 0, 1])
+        # drop 10, keep 20 twice, drop 30, keep 40 once
+        assert arr.replicate(mask).to_host() == [20, 20, 40]
+
+    def test_replicate_mask_all_zeros(self):
+        """All-zero mask yields an empty array."""
+        arr = parrot.array([1, 2, 3])
+        mask = parrot.array([0, 0, 0])
+        result = arr.replicate(mask)
+        assert result.length == 0
+        assert result.to_host() == []
+
+    def test_replicate_mask_length_mismatch_raises(self):
+        """Mask of wrong length raises."""
+        arr = parrot.array([1, 2, 3])
+        mask = parrot.array([1, 2])
+        with pytest.raises(ValueError, match="mask size"):
+            arr.replicate(mask)
+
+    def test_replicate_mask_negative_raises(self):
+        """Negative mask entries raise."""
+        arr = parrot.array([1, 2, 3])
+        mask = parrot.array([1, -1, 2])
+        with pytest.raises(ValueError, match="non-negative"):
+            arr.replicate(mask)
+
+    def test_replicate_mask_scalar_still_works(self):
+        """Int overload still dispatches to the lazy path."""
+        arr = parrot.array([1, 2, 3])
+        # scalar int still works
+        assert arr.replicate(2).to_host() == [1, 1, 2, 2, 3, 3]
+
+    def test_replicate_wrong_type_raises(self):
+        """Unsupported argument type raises TypeError."""
+        arr = parrot.array([1, 2, 3])
+        with pytest.raises(TypeError):
+            arr.replicate([1, 2, 3])  # list, not int or ParrotArray
+
+
+class TestCycle:
+    """Tests for the cycle() method - lazy index-mod cycling."""
+
+    def test_cycle_expand_1d(self):
+        """cycle(n) with n > current_size cycles the data."""
+        arr = parrot.array([1, 2, 3])
+        # [1,2,3,1,2,3,1,2,3]
+        assert arr.cycle((9,)).to_host() == [1, 2, 3, 1, 2, 3, 1, 2, 3]
+
+    def test_cycle_expand_2d(self):
+        """cycle into a 2D shape preserves flat cycling order."""
+        arr = parrot.array([1, 2, 3])
+        result = arr.cycle((2, 3))
+        # Flat: [1,2,3, 1,2,3]; 2x3 shape
+        assert result.shape == (2, 3)
+        assert result.to_host() == [[1, 2, 3], [1, 2, 3]]
+
+    def test_cycle_non_divisible(self):
+        """cycle total size not divisible by current_size still works."""
+        arr = parrot.array([1, 2])
+        # i%2 for i=0..4 -> [1,2,1,2,1]
+        assert arr.cycle((5,)).to_host() == [1, 2, 1, 2, 1]
+
+    def test_cycle_equal_size_is_reshape(self):
+        """prod(shape) == current_size behaves like reshape."""
+        arr = parrot.array([1, 2, 3, 4, 5, 6])
+        result = arr.cycle((2, 3))
+        assert result.shape == (2, 3)
+        assert result.to_host() == [[1, 2, 3], [4, 5, 6]]
+
+    def test_cycle_smaller_size_is_reshape(self):
+        """prod(shape) < current_size truncates via reshape semantics."""
+        arr = parrot.array([1, 2, 3, 4, 5, 6])
+        result = arr.cycle((4,))
+        assert result.length == 4
+        assert result.to_host() == [1, 2, 3, 4]
+
+    def test_cycle_int_shape(self):
+        """cycle accepts a bare int (treated as 1D shape)."""
+        arr = parrot.array([7, 8])
+        assert arr.cycle(6).to_host() == [7, 8, 7, 8, 7, 8]
+
+    def test_cycle_empty_raises(self):
+        """cycle on an empty array raises."""
+        with pytest.raises(ValueError, match="must be > 0"):
+            parrot.array([]).cycle((4,))
+
+    def test_cycle_zero_shape_raises(self):
+        """cycle to a zero-size shape raises."""
+        with pytest.raises(ValueError, match="must be > 0"):
+            parrot.array([1, 2, 3]).cycle((0,))
+
+
 class TestRepeat:
     """Tests for the repeat() method - scalar repetition."""
 
