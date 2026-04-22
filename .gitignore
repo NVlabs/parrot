@@ -20,3 +20,6 @@ paper/*
 !paper/comparison/
 *.csv
 __pycache__/
+.texlive-cache/
+*.synctex.gz
+*.xdv
