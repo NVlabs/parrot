@@ -7,7 +7,7 @@ import random
 import textwrap
 import time
 import types
-from typing import Any, Callable, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 import cupy as cp
 import numpy as np
@@ -185,6 +185,12 @@ class ParrotArray:
         # When mask is set, operations can either work directly with the mask
         # or call _apply_mask_if_needed() to materialize the filtered result
         self._mask = mask
+        # For ZipIterator-backed (tuple-valued) arrays from pairs()/enumerate(),
+        # remember the two source arrays so __repr__ can format tuples by
+        # collecting each side independently (a ZipIterator cannot be passed
+        # to unary_transform, so the normal materialization path fails).
+        # b is None means "indices" (enumerate).
+        self._pair_parts: Optional[Tuple["ParrotArray", Optional["ParrotArray"]]] = None
         if data is not None:
             # If we implement from_array, we'd set length here
             pass
@@ -205,6 +211,22 @@ class ParrotArray:
         """Show a preview of the array contents."""
         if self._iterator is None:
             return "ParrotArray(empty)"
+
+        # Tuple-valued arrays from pairs()/enumerate(). The underlying
+        # ZipIterator cannot be fed to unary_transform (scalar output only),
+        # so we materialize each side independently and zip on the host. Only
+        # valid when no post-zip transforms have been applied (after .map()
+        # the output is scalar again and the normal path works).
+        if (
+            self._pair_parts is not None
+            and not self._transforms
+            and self.length <= 1000
+        ):
+            try:
+                return self._repr_pairs()
+            except Exception:
+                # Fall through to generic strategies on failure
+                pass
 
         # Strategy 1: Full representation for small arrays (<= 1000 elements)
         # This matches numpy's behavior for shape visualization (e.g. 2D matrices)
@@ -244,6 +266,30 @@ class ParrotArray:
             return f"ParrotArray({arr_str}, dtype={self.dtype.__name__}, length={self.length})"
         except Exception:
             return f"ParrotArray(length={self.length}, dtype={self.dtype.__name__}, transforms={len(self._transforms)})"
+
+    def _repr_pairs(self):
+        """Format a pair-valued (ZipIterator-backed) array as a list of tuples.
+
+        Materializes each side of the zip independently and combines on the
+        host.  ``self._pair_parts[1] is None`` indicates ``enumerate()`` —
+        the second component is synthesized as ``range(length)``.
+        """
+        assert self._pair_parts is not None
+
+        def _to_host_list(src):
+            host = src.collect()
+            host = host.get() if hasattr(host, "get") else np.asarray(host)
+            return host.reshape(-1).tolist()
+
+        a_src, b_src = self._pair_parts
+        a_list = _to_host_list(a_src)
+        if b_src is None:
+            b_list = list(builtins.range(self.length))
+        else:
+            b_list = _to_host_list(b_src)
+
+        pairs_list = list(zip(a_list[: self.length], b_list[: self.length]))
+        return f"ParrotArray({pairs_list}, dtype={self.dtype.__name__})"
 
     def _sanitize_op(self, op):
         """Ensure op has a valid name and annotations for CUDA."""
@@ -1832,6 +1878,49 @@ class ParrotArray:
         result.length = total
         return result
 
+    def pairs(self, other: "ParrotArray") -> "ParrotArray":
+        """Pair each element with the corresponding element of ``other`` (lazy).
+
+        For arrays ``[a, b, c]`` and ``[x, y, z]``, produces a zipped array of
+        pairs ``[(a, x), (b, y), (c, z)]``.  Apply ``.map(tuple_op)`` to combine
+        the pairs.
+
+        Mirrors C++ ``fusion_array::pairs(other)``.
+
+        Args:
+            other: Another ParrotArray with the same length as ``self``.
+
+        Returns:
+            A new ParrotArray backed by a ZipIterator over ``(self, other)``.
+
+        Raises:
+            TypeError: If ``other`` is not a ParrotArray.
+            ValueError: If the two arrays have different lengths.
+        """
+        if self.has_mask:
+            return self._apply_mask_if_needed().pairs(other)
+        if not isinstance(other, ParrotArray):
+            raise TypeError(
+                f"pairs: expected ParrotArray, got {type(other).__name__}"
+            )
+        if other.has_mask:
+            return self.pairs(other._apply_mask_if_needed())
+        if self.length != other.length:
+            raise ValueError(
+                f"pairs: length mismatch {self.length} vs {other.length}"
+            )
+
+        a, restore_a = self._get_nestable_iterator()
+        b, restore_b = other._get_nestable_iterator()
+        zip_iter = iterators.ZipIterator(a, b)
+        restore_a()
+        restore_b()
+
+        result = ParrotArray(iterator=zip_iter, dtype=self.dtype)
+        result.length = self.length
+        result._pair_parts = (self, other)
+        return result
+
     def enumerate(self):
         """Pair each element with its index (lazy).
 
@@ -1851,6 +1940,7 @@ class ParrotArray:
 
         result = ParrotArray(iterator=zip_iter, dtype=self.dtype)
         result.length = self.length
+        result._pair_parts = (self, None)
         return result
 
     def transpose(self):

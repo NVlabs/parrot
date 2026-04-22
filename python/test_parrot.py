@@ -1224,6 +1224,52 @@ class TestCross:
             parrot.array([1]).cross(parrot.array([]))
 
 
+class TestPairs:
+    """Tests for the pairs(other) method."""
+
+    def test_pairs_basic(self):
+        """Pair two arrays and combine via map."""
+        a = parrot.array([10, 20, 30])
+        b = parrot.array([1, 2, 3])
+        # Pairs: [(10,1), (20,2), (30,3)] -> sum each pair
+        result = a.pairs(b).map(lambda t: t[0] + t[1]).to_host()
+        assert result == [11, 22, 33]
+
+    def test_pairs_preserves_length(self):
+        """pairs preserves the common length."""
+        assert parrot.range(7).pairs(parrot.range(7)).length == 7
+
+    def test_pairs_length_mismatch_raises(self):
+        """Mismatched lengths raise ValueError."""
+        with pytest.raises(ValueError, match="length mismatch"):
+            parrot.range(5).pairs(parrot.range(4))
+
+    def test_pairs_wrong_type_raises(self):
+        """Non-ParrotArray operand raises TypeError."""
+        with pytest.raises(TypeError):
+            parrot.range(3).pairs([1, 2, 3])
+
+    def test_pairs_repr_shows_tuples(self):
+        """repr of pairs(other) renders actual (a, b) tuples, not a summary.
+
+        Exercises the user's scenario: ``parrot.range(3).pairs(parrot.range(3)*2)``
+        should display ``[(0, 0), (1, 2), (2, 4)]``. The repr path collects each
+        side of the zip independently so it does not depend on the ZipIterator
+        being materializable as a scalar output.
+        """
+        r = repr(parrot.range(3).pairs(parrot.range(3).times(2)))
+        # Expected: ParrotArray([(0, 0), (1, 2), (2, 4)], dtype=int32)
+        assert "(0, 0)" in r
+        assert "(1, 2)" in r
+        assert "(2, 4)" in r
+        assert "transforms=" not in r  # not the generic fallback
+
+    def test_pairs_repr_identity(self):
+        """Pair the same range with itself: tuples are (i, i)."""
+        r = repr(parrot.range(4).pairs(parrot.range(4)))
+        assert "(0, 0)" in r and "(1, 1)" in r and "(2, 2)" in r and "(3, 3)" in r
+
+
 class TestEnumerate:
     """Tests for the enumerate() method."""
 

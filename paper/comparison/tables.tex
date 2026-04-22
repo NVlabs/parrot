@@ -79,7 +79,7 @@ filter(pred) & filter(predicate) & thrust::make\_transform\_iterator + \parrotim
 where() & where() & \parrotimpl\ range(size).keep(this) & \parrotimpl\ range(length).keep(self) \\
 gather(indices) & gather(indices) & thrust::make\_permutation\_iterator & iterators.PermutationIterator \\
 reduce<0>(init, op) & reduce(op, init, axis=0) & thrust::reduce & algorithms.reduce\_into \\
-reduce<1>(init, op) & reduce(op, init, axis=1) & \notimpl\ (no axis-1 reduction) & algorithms.segmented\_reduce \\
+reduce<1>(init, op) & reduce(op, init, axis=1) & \parrotimpl\ transpose().reduce<2>() & algorithms.segmented\_reduce \\
 reduce<2>(init, op) & reduce(op, init, axis=2) & thrustx::reduce\_by\_n & algorithms.segmented\_reduce \\
 sum<axis>() & sum(axis) & \parrotimpl\ reduce<axis>(0,+) & \parrotimpl\ reduce(+,0,axis) \\
 prod<axis>() & prod(axis) & \parrotimpl\ reduce<axis>(1,*) & \parrotimpl\ reduce(*,1,axis) \\
@@ -104,8 +104,8 @@ all<axis>() & all(axis) & \parrotimpl\ reduce<axis>(init,logical\_and) & \parrot
 \textrm{\textbf{Parrot (C++)}} & \textrm{\textbf{Parrot Python}} & \textrm{\textbf{CUDA C++ backend}} & \textrm{\textbf{cuda.compute backend}} \\
 \midrule
 scan<0>(op) & scan(op, axis=0) & thrust::inclusive\_scan & algorithms.inclusive\_scan \\
-scan<1>(op) & scan(op, axis=1) & \parrotimpl\ transpose().scan<2>().transpose() & \notimpl\ (axis 1 routed same as row-wise in current Python code) \\
-scan<2>(op) & scan(op, axis=2) & thrust::inclusive\_scan\_by\_key & \notimpl\ (no dedicated axis-2 scan kernel path) \\
+scan<1>(op) & scan(op, axis=1) & \parrotimpl\ transpose().scan<2>().transpose() & \notimpl\ (need scan\_by\_key) \\
+scan<2>(op) & scan(op, axis=2) & thrust::inclusive\_scan\_by\_key & \notimpl\ (need scan\_by\_key) \\
 sums<axis>() & sums(axis) & \parrotimpl\ scan<axis>(+) & \parrotimpl\ \_scan\_to\_array(+, 0) \\
 prods<axis>() & prods(axis) & \parrotimpl\ scan<axis>(*) & \parrotimpl\ \_scan\_to\_array(*, 1) \\
 mins<axis>() & mins(axis) & \parrotimpl\ scan<axis>(min) & \parrotimpl\ \_scan\_to\_array(min, init) \\
@@ -118,8 +118,8 @@ repeat(n) (scalar) & repeat(n) & thrust::make\_constant\_iterator & \parrotimpl\
 replicate(int n) & replicate(n) & thrustx::make\_replicate\_iterator & TransformIterator(idx//n) + PermutationIterator \\
 replicate(mask) & \notimpl\ (mask-overload) & materialized scatter + inclusive scan + permutation copy & \notimpl \\
 cross(other) & cross(other) & \parrotimpl\ replicate + cycle + pairs & \parrotimpl\ replicate + gather(mod) + ZipIterator \\
-outer(other, op) & outer(other, op) & thrustx::make\_outer\_iterator & Transform/Permutation/Zip iterator composition \\
-pairs(other) & implicit pair via map2/zip tuple & zip + pair transform iterator & iterators.ZipIterator \\
+outer(other, op) & outer(other, op) & thrustx::make\_outer\_iterator & Transform/Permutation/Zip iterator \\
+pairs(other) & pairs(other) & zip + pair transform iterator & iterators.ZipIterator \\
 enumerate() & enumerate() & \parrotimpl\ pairs(range(size)) & ZipIterator(values, CountingIterator) \\
 transpose() & transpose() & counting + transpose-index transform + permutation iterator & TransformIterator(idx) + PermutationIterator \\
 rev() & rev() & thrust::make\_reverse\_iterator & iterators.ReverseIterator (with collect in some paths) \\
