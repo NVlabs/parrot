@@ -1,0 +1,101 @@
+name: Check CCCL Update
+
+on:
+  schedule:
+    # Runs daily at 12:00 UTC
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-cccl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine current pinned CCCL version
+        id: current
+        run: |
+          current_tag=$(grep -oP 'GIT_TAG\s+\Kv[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt | head -n1)
+          if [ -z "$current_tag" ]; then
+            echo "Could not determine current CCCL version from CMakeLists.txt" >&2
+            exit 1
+          fi
+          echo "Current CCCL tag: $current_tag"
+          echo "tag=$current_tag" >> "$GITHUB_OUTPUT"
+          echo "version=${current_tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest CCCL release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest_tag=$(gh release view --repo NVIDIA/cccl --json tagName --jq .tagName)
+          if [ -z "$latest_tag" ]; then
+            echo "Failed to fetch latest CCCL release tag" >&2
+            exit 1
+          fi
+          echo "Latest CCCL tag: $latest_tag"
+          echo "tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "version=${latest_tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Compare versions
+        id: compare
+        run: |
+          current="${{ steps.current.outputs.version }}"
+          latest="${{ steps.latest.outputs.version }}"
+          if [ "$current" = "$latest" ]; then
+            echo "CCCL is already up to date ($current)."
+            echo "outdated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+          if [ "$newest" = "$latest" ] && [ "$latest" != "$current" ]; then
+            echo "A newer CCCL release is available: $latest (currently pinned to $current)."
+            echo "outdated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Pinned CCCL version ($current) is not older than the latest release ($latest)."
+            echo "outdated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update issue for newer CCCL release
+        if: steps.compare.outputs.outdated == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_TAG: ${{ steps.current.outputs.tag }}
+          LATEST_TAG: ${{ steps.latest.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          title="Upgrade CCCL to ${LATEST_TAG}"
+          body=$(cat <<EOF
+          A newer release of [NVIDIA/cccl](https://github.com/NVIDIA/cccl) is available.
+
+          - **Current pinned version:** \`${CURRENT_TAG}\`
+          - **Latest release:** [\`${LATEST_TAG}\`](https://github.com/NVIDIA/cccl/releases/tag/${LATEST_TAG})
+
+          Please consider upgrading the \`GIT_TAG\` in \`CMakeLists.txt\` to \`${LATEST_TAG}\` and verifying that the build and tests still pass.
+
+          _This issue was opened automatically by the \`Check CCCL Update\` workflow._
+          EOF
+          )
+
+          existing=$(gh issue list \
+            --repo "$REPO" \
+            --state open \
+            --search "\"$title\" in:title" \
+            --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" \
+            | head -n1)
+
+          if [ -n "$existing" ]; then
+            echo "Issue already exists: #$existing"
+          else
+            gh issue create \
+              --repo "$REPO" \
+              --title "$title" \
+              --body "$body"
+          fi

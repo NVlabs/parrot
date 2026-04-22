@@ -35,7 +35,27 @@ from tqdm import tqdm
 
 IMGS = ["torch", "tf", "parrot", "cupy", "jax", "matx", "thrust", "cuda", "arrayfire"]
 
+LOGO_URL_SOURCES = [
+    "https://raw.githubusercontent.com/codereport/parrot-cpp-extra/main/profiling/assets/{name}.png",
+    "https://raw.githubusercontent.com/codereport/logos/main/{name}.png",
+]
+
 SIZE_SUFFIXES = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
+
+
+def fetch_logo(name, cache_buster):
+    """Try each logo source in order; return a PIL Image or None."""
+    last_err = None
+    for url_template in LOGO_URL_SOURCES:
+        url = url_template.format(name=name) + f"?cb={cache_buster}"
+        try:
+            with urlopen(url) as response:
+                return Image.open(BytesIO(response.read()))
+        except Exception as e:
+            last_err = e
+    print(f"Warning: Could not load image for {name}: {last_err}")
+    return None
+
 
 
 def parse_size(s):
@@ -204,16 +224,12 @@ def _create_figure(
             )
 
     # Add logo images
+    cache_buster = int(time.time())
     for i, (total, count) in enumerate(zip(totals, instance_counts)):
         for name in IMGS:
             if name in labels[i]:
-                # Add cache-busting parameter to force fresh image download
-                cache_buster = int(time.time())
-                image_url = f"https://raw.githubusercontent.com/codereport/parrot-cpp-extra/main/profiling/assets/{name}.png?cb={cache_buster}"
-                try:
-                    with urlopen(image_url) as response:
-                        image_data = response.read()
-                    img = Image.open(BytesIO(image_data))
+                img = fetch_logo(name, cache_buster)
+                if img is not None:
                     fig.add_layout_image(
                         dict(
                             source=img,
@@ -231,8 +247,6 @@ def _create_figure(
                             yanchor="bottom",
                         )
                     )
-                except Exception as e:
-                    print(f"Warning: Could not load image for {name}: {e}")
                 break
 
     # Set smaller margins for mini version
@@ -519,17 +533,7 @@ def create_line_chart(results, n_values, chart_name, export_html):
                 for name in IMGS:
                     if name in label:
                         if name not in img_cache:
-                            image_url = f"https://raw.githubusercontent.com/codereport/parrot-cpp-extra/main/profiling/assets/{name}.png?cb={cache_buster}"
-                            try:
-                                with urlopen(image_url) as response:
-                                    img_cache[name] = Image.open(
-                                        BytesIO(response.read())
-                                    )
-                            except Exception as e:
-                                print(
-                                    f"Warning: Could not load image for {name}: {e}"
-                                )
-                                img_cache[name] = None
+                            img_cache[name] = fetch_logo(name, cache_buster)
                         base_img = img_cache.get(name)
                         if base_img is not None:
                             dotted = _add_color_dot(

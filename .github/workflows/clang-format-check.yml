@@ -22,10 +22,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Install clang-format
+    - name: Install clang-format-21 from LLVM apt repo
       run: |
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        sudo add-apt-repository -y "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main"
         sudo apt-get update
-        sudo apt-get install -y clang-format-18
+        sudo apt-get install -y clang-format-21
+        clang-format-21 --version
         
     - name: Check C++ code formatting
       run: |
@@ -45,14 +48,10 @@ jobs:
         format_issues=0
         for file in $files; do
           echo "Checking $file..."
-          if ! clang-format-18 --dry-run --Werror "$file" > /dev/null 2>&1; then
+          if ! clang-format-21 --dry-run --Werror "$file" > /dev/null 2>&1; then
             echo "❌ $file is not properly formatted"
-            echo "Expected format:"
-            clang-format-18 "$file" | head -20
-            echo ""
-            echo "Actual format:"
-            head -20 "$file"
-            echo ""
+            echo "Diff (expected vs actual):"
+            diff <(clang-format-21 "$file") "$file" || true
             echo "---"
             format_issues=$((format_issues + 1))
           else
@@ -65,10 +64,10 @@ jobs:
           echo "❌ Found $format_issues file(s) with formatting issues."
           echo ""
           echo "To fix formatting issues, run:"
-          echo "  clang-format-18 -i <filename>"
+          echo "  clang-format -i <filename>"
           echo ""
           echo "Or to fix all files at once:"
-          echo "  find . -name '*.cpp' -o -name '*.hpp' -o -name '*.c' -o -name '*.h' -o -name '*.cu' -o -name '*.cuh' | grep -v './build/' | grep -v './_deps/' | grep -v './docs/' | grep -v './.venv/' | grep -v './.git/' | xargs clang-format-18 -i"
+          echo "  find . -name '*.cpp' -o -name '*.hpp' -o -name '*.c' -o -name '*.h' -o -name '*.cu' -o -name '*.cuh' | grep -v './build/' | grep -v './_deps/' | grep -v './docs/' | grep -v './.venv/' | grep -v './.git/' | xargs clang-format -i"
           exit 1
         else
           echo ""

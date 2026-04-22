@@ -16,16 +16,14 @@
         <img src="https://github.com/NVLabs/parrot/actions/workflows/unit-tests.yml/badge.svg" /></a>
 </p>
 
-**Parrot** is a C++ library for fused array operations using CUDA/Thrust. It provides efficient GPU-accelerated operations with lazy evaluation semantics, allowing for chaining of operations without unnecessary intermediate materializations.
+**Parrot** is a s an array fusion GPU library built on NVIDIA's [CCCL libaries](https://nvidia.github.io/cccl/unstable/cpp.html#cccl-cpp-libraries) (Thrust/CUB). It provides efficient GPU-accelerated operations with lazy evaluation semantics, allowing for chaining of operations without unnecessary intermediate materializations.
 
 ## ✨ Features
 
-- **Fused Operations** - Operations are fused when possible
-- **GPU Acceleration** - Built on CUDA/Thrust for high performance
+- **Implicit Fusion** - Implicit fusion of operations
+- **GPU Acceleration** - Built on NVIDIA's [CCCL libaries](https://nvidia.github.io/cccl/unstable/cpp.html#cccl-cpp-libraries) (Thrust/CUB) for high performance
 - **Chainable API** - Clean, expressive syntax for complex operations
 - **Header-Only** - Simple integration with `#include "parrot.hpp"`
-
-¹ *Lazy-ish means that any operation that **can** be lazily evaluated **is** lazily evaluated.*
 
 ## 🚀 Quick Start
 

@@ -11,10 +11,9 @@ Features
 ~~~~~~~~
 
 * Implicit fusion¹ of array operations
-* GPU acceleration using CUDA/Thrust
+* GPU acceleration using NVIDIA's `CCCL libaries <https://nvidia.github.io/cccl/unstable/cpp.html#cccl-cpp-libraries>`_ (Thrust/CUB)
 * Chainable operations with a clean API
-
-¹ - Any operation that **can** be fused **is** fused.
+* Header-only with ``#include "parrot.hpp"``
 
 Quick Start
 ~~~~~~~~~~~

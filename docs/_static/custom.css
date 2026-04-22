@@ -511,6 +511,25 @@ html[data-theme="dark"] code.literal {
     border-radius: 3px;
 }
 
+/* GitHub icon in top-of-page actions */
+.content-icon-container {
+    align-items: center;
+}
+
+.github-repo-link {
+    color: var(--color-foreground-muted);
+    line-height: 0;
+}
+
+.github-repo-link:hover {
+    color: var(--color-foreground-primary);
+}
+
+.github-repo-link svg {
+    width: 1rem;
+    height: 1rem;
+}
+
 /* Function signatures in VS Light theme */
 html[data-theme="light"] dl.cpp dt {
     background-color: #f6f8fa;
