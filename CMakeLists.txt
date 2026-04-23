@@ -11,7 +11,7 @@ if(NOT DEFINED CMAKE_CUDA_COMPILER OR CMAKE_CUDA_COMPILER STREQUAL "")
             /usr/local/cuda/bin
             /opt/cuda/bin
             # Add HPC SDK paths
-            /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin
+            /opt/nvidia/hpc_sdk/Linux_x86_64/26.3/compilers/bin
             /opt/nvidia/hpc_sdk/Linux_x86_64/*/compilers/bin
         DOC "NVIDIA CUDA Compiler"
     )
@@ -23,7 +23,11 @@ if(NOT DEFINED CMAKE_CUDA_COMPILER OR CMAKE_CUDA_COMPILER STREQUAL "")
         # Set CUDA_HOME based on detected NVCC for HPC SDK
         get_filename_component(NVCC_DIR ${NVCC_EXECUTABLE} DIRECTORY)
         get_filename_component(HPC_SDK_BASE ${NVCC_DIR} DIRECTORY)
-        if(EXISTS "${HPC_SDK_BASE}/cuda/13.0")
+        if(EXISTS "${HPC_SDK_BASE}/cuda/13.1")
+            set(ENV{CUDA_HOME} "${HPC_SDK_BASE}/cuda/13.1")
+            set(CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES "${HPC_SDK_BASE}/cuda/13.1/targets/x86_64-linux/include")
+            message(STATUS "Set CUDA_HOME to: ${HPC_SDK_BASE}/cuda/13.1")
+        elseif(EXISTS "${HPC_SDK_BASE}/cuda/13.0")
             set(ENV{CUDA_HOME} "${HPC_SDK_BASE}/cuda/13.0")
             set(CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES "${HPC_SDK_BASE}/cuda/13.0/targets/x86_64-linux/include")
             message(STATUS "Set CUDA_HOME to: ${HPC_SDK_BASE}/cuda/13.0")
@@ -78,7 +82,7 @@ if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS "13.0")
         "Required: CUDA >= 13.0\n"
         "Found: CUDA ${CMAKE_CUDA_COMPILER_VERSION}"
         "Use cmake -DCMAKE_CUDA_COMPILER=/path/to/nvcc .. to specify the CUDA compiler."
-        "i.e. cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/nvcc ..")
+        "i.e. cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/compilers/bin/nvcc ..")
 endif()
 
 message(STATUS "CUDA ${CMAKE_CUDA_COMPILER_VERSION} detected - meets minimum requirement (13.0+)")
