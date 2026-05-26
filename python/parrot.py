@@ -1,5 +1,3 @@
-"""Vendored from https://github.com/NVlabs/parrot/blob/experimental-parrot-python/python/parrot.py."""
-
 import ast
 import builtins
 import functools
