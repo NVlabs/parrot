@@ -1,3 +1,5 @@
+"""Vendored from https://github.com/NVlabs/parrot/blob/experimental-parrot-python/python/parrot.py."""
+
 import ast
 import builtins
 import functools
@@ -522,7 +524,7 @@ class ParrotArray:
         restore_self()
         out_iter = iterators.ZipIterator(d_out, iterators.DiscardIterator())
 
-        algorithms.select(in_iter, out_iter, d_num_selected, pred, self.length)
+        algorithms.select(d_in=in_iter, d_out=out_iter, d_num_selected_out=d_num_selected, cond=pred, num_items=self.length)
 
         out_len = int(d_num_selected.get()[0])
         if out_len == 0:
@@ -856,7 +858,7 @@ class ParrotArray:
             d_output = cp.empty(1, dtype=self.dtype)
 
             # Instantiate reduction
-            algorithms.reduce_into(final_iterator, d_output, op, self.length, h_init)
+            algorithms.reduce_into(d_in=final_iterator, d_out=d_output, num_items=self.length, op=op, h_init=h_init)
 
             return d_output[0].get().item()
 
@@ -891,13 +893,13 @@ class ParrotArray:
             h_init = np.array([init_value], dtype=self.dtype)
 
             algorithms.segmented_reduce(
-                self._get_composed_iterator(),
-                d_out,
-                start_offsets,
-                end_offsets,
-                op,
-                h_init,
-                rows,
+                d_in=self._get_composed_iterator(),
+                d_out=d_out,
+                num_segments=rows,
+                start_offsets_in=start_offsets,
+                end_offsets_in=end_offsets,
+                op=op,
+                h_init=h_init,
             )
 
             result_arr = ParrotArray(data=d_out, dtype=self.dtype)
@@ -928,7 +930,7 @@ class ParrotArray:
         d_output = cp.empty(self.length, dtype=self.dtype)
 
         # Instantiate scan
-        algorithms.inclusive_scan(final_iterator, d_output, op, h_init, self.length)
+        algorithms.inclusive_scan(d_in=final_iterator, d_out=d_output, op=op, init_value=h_init, num_items=self.length)
 
         return d_output.get()
 
@@ -947,7 +949,7 @@ class ParrotArray:
         h_init = np.array([init_value], dtype=self.dtype)
         d_output = cp.empty(self.length, dtype=self.dtype)
 
-        algorithms.inclusive_scan(final_iterator, d_output, op, h_init, self.length)
+        algorithms.inclusive_scan(d_in=final_iterator, d_out=d_output, op=op, init_value=h_init, num_items=self.length)
 
         result = ParrotArray(data=d_output, dtype=self.dtype)
         result._iterator = d_output
@@ -1029,7 +1031,7 @@ class ParrotArray:
             identity_op = _identity_int
 
         # Instantiate and run transform (no temporary storage needed)
-        algorithms.unary_transform(final_iterator, d_output, identity_op, self.length)
+        algorithms.unary_transform(d_in=final_iterator, d_out=d_output, op=identity_op, num_items=self.length)
 
         if self._shape is not None and self._shape != (self.length,):
             return d_output.reshape(self._shape)
@@ -1313,13 +1315,13 @@ class ParrotArray:
         d_out_num_selected = cp.empty(1, dtype=np.int32)
 
         algorithms.unique_by_key(
-            in_keys,
-            in_items,
-            d_out_keys,
-            d_out_items,
-            d_out_num_selected,
-            eq_op,
-            self.length,
+            d_in_keys=in_keys,
+            d_in_items=in_items,
+            d_out_keys=d_out_keys,
+            d_out_items=d_out_items,
+            d_out_num_selected=d_out_num_selected,
+            op=eq_op,
+            num_items=self.length,
         )
 
         out_len = int(d_out_num_selected.get()[0])
@@ -1548,7 +1550,7 @@ class ParrotArray:
         d_num_selected = cp.empty(1, dtype=np.int32)
         in_iter = self._get_composed_iterator()
 
-        algorithms.select(in_iter, d_out, d_num_selected, pred, self.length)
+        algorithms.select(d_in=in_iter, d_out=d_out, d_num_selected_out=d_num_selected, cond=pred, num_items=self.length)
 
         out_len = int(d_num_selected.get()[0])
         if out_len == 0:
