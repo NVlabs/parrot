@@ -8,7 +8,9 @@ This document describes how to build, test, and generate documentation for the p
 - C++ compiler with C++20 support
 - NVIDIA CUDA Toolkit 13.0 or later
 - NVIDIA GPU with compute capability 7.0 or higher
-- Python 3 with pip (for documentation, optional)
+- Optional, for documentation
+  - Python 3 with pip (or [uv](https://docs.astral.sh/uv/))
+  - [Doxygen](https://www.doxygen.nl/)
 
 <details>
 <summary><strong>CUDA Installation</strong> (Click to expand if you need to install CUDA)</summary>
@@ -154,7 +156,7 @@ The project uses Doxygen and optionally Sphinx for documentation.
 
 Install required Python packages (optional, for Sphinx):
 ```bash
-pip install sphinx sphinx-rtd-theme breathe
+pip install -r requirements.txt
 ```
 
 ## Generate Documentation
