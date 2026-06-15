@@ -17,6 +17,8 @@
 
 #include "parrot.hpp"
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include <algorithm>
+#include <vector>
 #include "test_common.hpp"
 
 // Define a key function that extracts the parity (0 for even, 1 for odd)
@@ -55,7 +57,7 @@ TEST_CASE("ParrotTest - SortByKeyTest") {
     int count_even    = 0;
     int count_odd     = 0;
     auto sorted_host  = sorted
-                         .to_host();  // Assuming to_host() returns std::vector
+                          .to_host();  // Assuming to_host() returns std::vector
 
     REQUIRE_EQ(sorted_host.size(), arr.size());
 
@@ -75,6 +77,73 @@ TEST_CASE("ParrotTest - SortByKeyTest") {
 
     // Verify total is the same
     CHECK_EQ(arr.sum().value(), sorted.sum().value());
+}
+
+// Check that a bool array sorts to all falses then all trues, with the number
+// of trues preserved
+static void check_bool_sorted(const std::vector<bool>& input) {
+    auto arr    = parrot::array(input);
+    auto sorted = arr.sort();
+    auto host   = sorted.to_host();
+
+    REQUIRE_EQ(host.size(), input.size());
+
+    bool seen_true  = false;
+    size_t num_true = 0;
+    for (size_t i = 0; i < host.size(); ++i) {
+        if (host[i]) {
+            seen_true = true;
+            ++num_true;
+        } else {
+            CHECK_MESSAGE(!seen_true,
+                          "Found a false after a true (not sorted)");
+        }
+    }
+
+    size_t expected_true = static_cast<size_t>(
+      std::count(input.begin(), input.end(), true));
+    CHECK_EQ(num_true, expected_true);
+}
+
+// Test sort function on a bool array (count + fill specialization)
+TEST_CASE("ParrotTest - BoolSortMixed") {
+    check_bool_sorted({true, false, true, false, false, true, false});
+}
+
+// Test bool sort with all false values
+TEST_CASE("ParrotTest - BoolSortAllFalse") {
+    check_bool_sorted({false, false, false, false});
+}
+
+// Test bool sort with all true values
+TEST_CASE("ParrotTest - BoolSortAllTrue") {
+    check_bool_sorted({true, true, true, true});
+}
+
+// Test bool sort with a single element
+TEST_CASE("ParrotTest - BoolSortSingleElement") {
+    check_bool_sorted({true});
+    check_bool_sorted({false});
+}
+
+// Test bool sort with an empty array
+TEST_CASE("ParrotTest - BoolSortEmpty") {
+    auto arr    = parrot::array(std::vector<bool>{});
+    auto sorted = arr.sort();
+    CHECK_EQ(sorted.size(), 0);
+}
+
+// Test bool sort with an already-sorted array
+TEST_CASE("ParrotTest - BoolSortAlreadySorted") {
+    check_bool_sorted({false, false, true, true});
+}
+
+// Test sort on a non-bool array still uses the comparison sort
+TEST_CASE("ParrotTest - SortNonBoolUnaffected") {
+    auto arr      = parrot::array({3.5, 1.25, 2.75, 0.5});
+    auto sorted   = arr.sort();
+    auto expected = parrot::array({0.5, 1.25, 2.75, 3.5});
+    CHECK(check_match(sorted, expected));
 }
 
 // Test uniq function for removing adjacent duplicates

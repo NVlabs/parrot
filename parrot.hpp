@@ -1408,8 +1408,21 @@ class fusion_array {
         auto sorted_data = std::make_shared<thrust::device_vector<value_type>>(
           n, thrust::default_init);
 
-        thrust::copy(_begin, _end, sorted_data->begin());
-        thrust::sort(sorted_data->begin(), sorted_data->end());
+        if constexpr (std::is_same_v<value_type, bool>) {
+            // Sorting a bool array is a partition: count the trues and fill
+            // [falses..trues] directly.
+            int const num_true  = thrust::count(_begin, _end, true);
+            int const num_false = n - num_true;
+            thrust::fill(sorted_data->begin(),
+                         sorted_data->begin() + num_false,
+                         false);
+            thrust::fill(sorted_data->begin() + num_false,
+                         sorted_data->end(),
+                         true);
+        } else {
+            thrust::copy(_begin, _end, sorted_data->begin());
+            thrust::sort(sorted_data->begin(), sorted_data->end());
+        }
 
         // Return a new fusion_array with ownership of the sorted data
         return fusion_array<
