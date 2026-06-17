@@ -57,7 +57,7 @@ TEST_CASE("ParrotTest - SortByKeyTest") {
     int count_even    = 0;
     int count_odd     = 0;
     auto sorted_host  = sorted
-                          .to_host();  // Assuming to_host() returns std::vector
+                         .to_host();  // Assuming to_host() returns std::vector
 
     REQUIRE_EQ(sorted_host.size(), arr.size());
 

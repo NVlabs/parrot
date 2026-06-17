@@ -1413,12 +1413,10 @@ class fusion_array {
             // [falses..trues] directly.
             int const num_true  = thrust::count(_begin, _end, true);
             int const num_false = n - num_true;
-            thrust::fill(sorted_data->begin(),
-                         sorted_data->begin() + num_false,
-                         false);
-            thrust::fill(sorted_data->begin() + num_false,
-                         sorted_data->end(),
-                         true);
+            thrust::fill(
+              sorted_data->begin(), sorted_data->begin() + num_false, false);
+            thrust::fill(
+              sorted_data->begin() + num_false, sorted_data->end(), true);
         } else {
             thrust::copy(_begin, _end, sorted_data->begin());
             thrust::sort(sorted_data->begin(), sorted_data->end());
