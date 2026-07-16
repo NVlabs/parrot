@@ -3,47 +3,94 @@ cmake_minimum_required(VERSION 3.10)
 # Set CUDA compiler path before project declaration
 # Only do dynamic detection if CMAKE_CUDA_COMPILER is not already set
 if(NOT DEFINED CMAKE_CUDA_COMPILER OR CMAKE_CUDA_COMPILER STREQUAL "")
-    # Try to find NVCC dynamically, with fallback to common locations
-    find_program(NVCC_EXECUTABLE nvcc
-        HINTS
-            $ENV{CUDA_HOME}/bin
-            $ENV{CUDA_PATH}/bin
-            /usr/local/cuda/bin
-            /opt/cuda/bin
-            # Add HPC SDK paths
-            /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/compilers/bin
-            /opt/nvidia/hpc_sdk/Linux_x86_64/*/compilers/bin
-        DOC "NVIDIA CUDA Compiler"
-    )
+    # parrot requires CUDA >= 13.0 (for thrust::default_init), which ships with
+    # recent NVIDIA HPC SDKs. A system /usr/local/cuda -- or a CUDA_HOME/CUDA_PATH
+    # left in the environment -- is frequently an older standalone toolkit, so we
+    # can't just take the first nvcc we find. Instead we gather candidate nvcc
+    # paths in priority order and pick the first one whose version qualifies.
+    set(PARROT_MIN_CUDA_VERSION "13.0")
+
+    # HPC SDK compiler bins, newest version directory first.
+    file(GLOB PARROT_HPC_SDK_BINS "/opt/nvidia/hpc_sdk/Linux_x86_64/*/compilers/bin")
+    list(SORT PARROT_HPC_SDK_BINS ORDER DESCENDING)
+
+    set(PARROT_NVCC_CANDIDATES "")
+    foreach(dir
+            "$ENV{CUDA_HOME}/bin"
+            "$ENV{CUDA_PATH}/bin"
+            ${PARROT_HPC_SDK_BINS}
+            "/usr/local/cuda/bin"
+            "/opt/cuda/bin")
+        if(EXISTS "${dir}/nvcc")
+            list(APPEND PARROT_NVCC_CANDIDATES "${dir}/nvcc")
+        endif()
+    endforeach()
+    # As a last resort, honor an nvcc already on PATH.
+    find_program(PARROT_NVCC_ON_PATH nvcc)
+    if(PARROT_NVCC_ON_PATH)
+        list(APPEND PARROT_NVCC_CANDIDATES "${PARROT_NVCC_ON_PATH}")
+    endif()
+    if(PARROT_NVCC_CANDIDATES)
+        list(REMOVE_DUPLICATES PARROT_NVCC_CANDIDATES)
+    endif()
+
+    # Select the first candidate meeting the minimum version. Remember the first
+    # candidate found overall so we can emit a helpful error if none qualify.
+    set(NVCC_EXECUTABLE "")
+    set(PARROT_FIRST_NVCC "")
+    set(PARROT_FIRST_NVCC_VERSION "")
+    foreach(candidate ${PARROT_NVCC_CANDIDATES})
+        execute_process(
+            COMMAND "${candidate}" --version
+            OUTPUT_VARIABLE PARROT_NVCC_VERSION_OUT
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(PARROT_NVCC_VERSION_OUT MATCHES "release ([0-9]+\\.[0-9]+)")
+            set(PARROT_CANDIDATE_VERSION "${CMAKE_MATCH_1}")
+            if(PARROT_FIRST_NVCC STREQUAL "")
+                set(PARROT_FIRST_NVCC "${candidate}")
+                set(PARROT_FIRST_NVCC_VERSION "${PARROT_CANDIDATE_VERSION}")
+            endif()
+            if(NOT PARROT_CANDIDATE_VERSION VERSION_LESS PARROT_MIN_CUDA_VERSION)
+                set(NVCC_EXECUTABLE "${candidate}")
+                set(PARROT_SELECTED_VERSION "${PARROT_CANDIDATE_VERSION}")
+                break()
+            endif()
+        endif()
+    endforeach()
 
     if(NVCC_EXECUTABLE)
-        set(CMAKE_CUDA_COMPILER ${NVCC_EXECUTABLE})
-        message(STATUS "Auto-detected NVCC: ${NVCC_EXECUTABLE}")
-        
-        # Set CUDA_HOME based on detected NVCC for HPC SDK
-        get_filename_component(NVCC_DIR ${NVCC_EXECUTABLE} DIRECTORY)
-        get_filename_component(HPC_SDK_BASE ${NVCC_DIR} DIRECTORY)
-        if(EXISTS "${HPC_SDK_BASE}/cuda/13.1")
-            set(ENV{CUDA_HOME} "${HPC_SDK_BASE}/cuda/13.1")
-            set(CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES "${HPC_SDK_BASE}/cuda/13.1/targets/x86_64-linux/include")
-            message(STATUS "Set CUDA_HOME to: ${HPC_SDK_BASE}/cuda/13.1")
-        elseif(EXISTS "${HPC_SDK_BASE}/cuda/13.0")
-            set(ENV{CUDA_HOME} "${HPC_SDK_BASE}/cuda/13.0")
-            set(CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES "${HPC_SDK_BASE}/cuda/13.0/targets/x86_64-linux/include")
-            message(STATUS "Set CUDA_HOME to: ${HPC_SDK_BASE}/cuda/13.0")
+        set(CMAKE_CUDA_COMPILER "${NVCC_EXECUTABLE}")
+        message(STATUS "Auto-detected NVCC: ${NVCC_EXECUTABLE} (CUDA ${PARROT_SELECTED_VERSION})")
+
+        # Point CUDA_HOME at the toolkit bundled next to this nvcc (HPC SDK).
+        # Pick the newest versioned cuda/<major>.<minor> dir (e.g. 13.2 with HPC
+        # SDK 26.5), falling back to the generic cuda symlink.
+        get_filename_component(NVCC_DIR "${NVCC_EXECUTABLE}" DIRECTORY)
+        get_filename_component(HPC_SDK_BASE "${NVCC_DIR}" DIRECTORY)
+        file(GLOB HPC_SDK_CUDA_DIRS "${HPC_SDK_BASE}/cuda/[0-9]*.[0-9]*")
+        list(SORT HPC_SDK_CUDA_DIRS ORDER DESCENDING)
+        if(HPC_SDK_CUDA_DIRS)
+            list(GET HPC_SDK_CUDA_DIRS 0 HPC_SDK_CUDA_DIR)
+            set(ENV{CUDA_HOME} "${HPC_SDK_CUDA_DIR}")
+            set(CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES "${HPC_SDK_CUDA_DIR}/targets/x86_64-linux/include")
+            message(STATUS "Set CUDA_HOME to: ${HPC_SDK_CUDA_DIR}")
         elseif(EXISTS "${HPC_SDK_BASE}/cuda")
             set(ENV{CUDA_HOME} "${HPC_SDK_BASE}/cuda")
             message(STATUS "Set CUDA_HOME to: ${HPC_SDK_BASE}/cuda")
         endif()
+    elseif(NOT PARROT_FIRST_NVCC STREQUAL "")
+        message(FATAL_ERROR
+            "Found nvcc at ${PARROT_FIRST_NVCC} (CUDA ${PARROT_FIRST_NVCC_VERSION}), "
+            "but parrot requires CUDA >= ${PARROT_MIN_CUDA_VERSION}.\n"
+            "No CUDA >= ${PARROT_MIN_CUDA_VERSION} toolkit was found via CUDA_HOME, "
+            "the NVIDIA HPC SDK (/opt/nvidia/hpc_sdk), /usr/local/cuda, or PATH.\n"
+            "Install the HPC SDK or set the compiler explicitly, e.g.\n"
+            "  cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.5/compilers/bin/nvcc ..")
     else()
-        # Fallback to your specific installation if dynamic detection fails
-        set(FALLBACK_NVCC "/opt/nvidia/hpc_sdk/Linux_x86_64/25.5/compilers/bin/nvcc")
-        if(EXISTS ${FALLBACK_NVCC})
-            set(CMAKE_CUDA_COMPILER ${FALLBACK_NVCC})
-            message(STATUS "Using fallback NVCC: ${FALLBACK_NVCC}")
-        else()
-            message(FATAL_ERROR "Could not find NVCC compiler. Please set CMAKE_CUDA_COMPILER manually or ensure NVCC is in your PATH.")
-        endif()
+        message(FATAL_ERROR
+            "Could not find an nvcc compiler. Install CUDA >= ${PARROT_MIN_CUDA_VERSION} "
+            "or set -DCMAKE_CUDA_COMPILER=/path/to/nvcc.")
     endif()
 else()
     message(STATUS "Using manually specified NVCC: ${CMAKE_CUDA_COMPILER}")
