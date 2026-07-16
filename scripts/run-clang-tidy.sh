@@ -88,29 +88,75 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Find the best clang-tidy installation (prefer newer versions)
-CLANG_TIDY=""
+# Find the best clang-tidy installation.
+#
+# Pin a minimum known-good version. CUDA 13.2's internal headers
+# (crt/math_functions.hpp) are only parsed cleanly by newer clang front-ends:
+# LLVM 21.1.4 fails with a spurious "expected function body after function
+# declarator" error while compiling the CUDA math headers, which aborts the
+# whole translation unit and fails the lint even though the error is not in our
+# code. Requiring a minimum version stops a stale/older clang-tidy from silently
+# producing that false failure. Override the auto-detection with CLANG_TIDY=...
+MIN_CLANG_TIDY_VERSION="21.1.8"
 
-# First try Homebrew (usually newer - LLVM 18+)
-if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
-    CLANG_TIDY="/home/linuxbrew/.linuxbrew/bin/clang-tidy"
-    echo "Using Homebrew clang-tidy: $($CLANG_TIDY --version | head -1)"
-# Try system clang-tidy as fallback
-elif command -v clang-tidy &> /dev/null; then
-    CLANG_TIDY="clang-tidy"
-    CLANG_VERSION=$(clang-tidy --version | head -1)
-    echo "Using system clang-tidy: $CLANG_VERSION"
-    
-    # Warn if using old version
-    if echo "$CLANG_VERSION" | grep -qE "version (1[0-4]|[0-9])\\."; then
-        echo "⚠️  WARNING: Detected clang-tidy version 14 or older."
-        echo "    LLVM 14 has limited CUDA support and may report false errors."
-        echo "    Consider installing LLVM 18+: brew install llvm"
+clang_tidy_version() {
+    # Print the x.y.z version of a clang-tidy binary, or nothing on failure.
+    "$1" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1
+}
+
+version_ge() {
+    # Succeed if version $1 >= version $2 (semantic-version comparison).
+    [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+}
+
+# Build an ordered list of candidate binaries, best first:
+#   1. An explicit override via the CLANG_TIDY env var.
+#   2. The newest Homebrew LLVM keg by *exact versioned path* -- not the bin/
+#      symlink -- so a stale symlink can't pin us to an old keg (this is the
+#      trap that made CI keep using 21.1.4).
+#   3. The Homebrew bin symlink.
+#   4. Versioned system binaries (clang-tidy-24 ... clang-tidy-21), newest first.
+#   5. A plain clang-tidy on PATH.
+CANDIDATES=()
+[ -n "$CLANG_TIDY" ] && CANDIDATES+=("$CLANG_TIDY")
+while IFS= read -r keg; do
+    [ -n "$keg" ] && CANDIDATES+=("$keg")
+done < <(ls -1 /home/linuxbrew/.linuxbrew/Cellar/llvm/*/bin/clang-tidy 2>/dev/null | sort -Vr)
+CANDIDATES+=("/home/linuxbrew/.linuxbrew/bin/clang-tidy")
+for major in 24 23 22 21; do
+    versioned=$(command -v "clang-tidy-$major" 2>/dev/null) && [ -n "$versioned" ] && CANDIDATES+=("$versioned")
+done
+plain=$(command -v clang-tidy 2>/dev/null) && [ -n "$plain" ] && CANDIDATES+=("$plain")
+
+CLANG_TIDY=""
+TOO_OLD_BIN=""
+TOO_OLD_VER=""
+for candidate in "${CANDIDATES[@]}"; do
+    { [ -x "$candidate" ] || command -v "$candidate" &> /dev/null; } || continue
+    ver=$(clang_tidy_version "$candidate")
+    [ -z "$ver" ] && continue
+    if version_ge "$ver" "$MIN_CLANG_TIDY_VERSION"; then
+        CLANG_TIDY="$candidate"
+        echo "Using clang-tidy: $candidate (LLVM $ver, satisfies pinned minimum $MIN_CLANG_TIDY_VERSION)"
+        break
+    elif [ -z "$TOO_OLD_BIN" ]; then
+        TOO_OLD_BIN="$candidate"
+        TOO_OLD_VER="$ver"
     fi
-else
-    echo "Error: clang-tidy is not installed. Please install it first."
-    echo "Recommended: brew install llvm (for LLVM 18+)"
-    echo "Alternative: sudo apt-get install clang-tidy"
+done
+
+if [ -z "$CLANG_TIDY" ]; then
+    if [ -n "$TOO_OLD_BIN" ]; then
+        echo "Error: clang-tidy $TOO_OLD_VER ($TOO_OLD_BIN) is older than the pinned minimum $MIN_CLANG_TIDY_VERSION."
+        echo "       LLVM < $MIN_CLANG_TIDY_VERSION fails to parse the CUDA 13.2 headers"
+        echo "       (crt/math_functions.hpp: 'expected function body after function declarator')."
+        echo "       Fix: 'brew upgrade llvm', then RESTART the CI runner so it re-resolves the binary,"
+        echo "       or run with CLANG_TIDY=/path/to/clang-tidy (>= $MIN_CLANG_TIDY_VERSION)."
+    else
+        echo "Error: clang-tidy is not installed. Please install it first."
+        echo "Recommended: brew install llvm (LLVM >= $MIN_CLANG_TIDY_VERSION)"
+        echo "Alternative: sudo apt-get install clang-tidy"
+    fi
     exit 1
 fi
 
