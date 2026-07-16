@@ -53,16 +53,16 @@ jobs:
       
     - name: Configure with CMake
       env:
-        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1
-        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
       run: |
         cd build
         cmake .. -DCUDA_ARCH=AUTO  # Auto-detect your GPU architecture
         
     - name: Build project
       env:
-        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1
-        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
       run: |
         cd build
         cmake --build . -j$(nproc)
