@@ -17,8 +17,18 @@
 
 #include "parrot.hpp"
 
+// todo: saxpy_fast and saxpy_slow functions as arg passing example
+
 int main() {
     auto x = parrot::array({1.0, 1.0, 1.0, 1.0});
     auto y = parrot::array({1.0, 2.0, 3.0, 4.0});
-    x.times(2.0).add(y).print();  // 3 4 5 6
+    
+    auto A = 2.0;
+
+    // slow
+    auto temp = parrot::scalar(A).repeat(x.size());
+    x.times(temp).add(y).print();  // 3 4 5 6
+
+    // fast
+    x.times(A).add(y).print();  // 3 4 5 6
 }

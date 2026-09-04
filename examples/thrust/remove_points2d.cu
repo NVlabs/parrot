@@ -17,11 +17,22 @@
 
 #include "parrot.hpp"
 
+auto is_in_circle = [] __host__ __device__(float x, float y) {
+    // unlike thrust::remove_if, fusion_array::filter 
+    // keeps elements that satisfy the predicate
+    return x * x + y * y <= 1;
+};
+
 int main() {
-    auto is_in_circle = [] __host__ __device__(float x, float y) {
-        return x * x + y * y <= 1;
-    };
-    auto x = parrot::scalar(1.0f).repeat(20).rand();
-    auto y = parrot::scalar(1.0f).repeat(20).rand();
-    auto p = x.pairs(y).filter(thrust::make_zip_function(is_in_circle)).print();
+    int N = 20;
+
+    auto x = parrot::scalar(1.0f).repeat(N).rand();
+    auto y = parrot::scalar(1.0f).repeat(N).rand();
+
+    auto p = x.pairs(y) //
+                .print()
+                .filter(thrust::make_zip_function(is_in_circle));
+    
+    std::cout << p.size() << std::endl;
+    p.print();
 }
