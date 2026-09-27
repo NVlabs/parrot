@@ -1701,12 +1701,17 @@ class fusion_array {
               typename BinaryOp>
     auto reduce(T init,
                 BinaryOp op,
-                std::integral_constant<int, Axis> /*axis*/ = {}) const {
+                std::integral_constant<int, Axis> /*axis*/ = {},
+                cudaStream_t stream = 0) const {
         using value_type = typename std::iterator_traits<Iterator>::value_type;
 
         if constexpr (Axis == 0) {
             // Default reduction (all elements)
             // Perform the reduction to get a single scalar value
+            if (stream != 0) {
+                throw std::invalid_argument(
+                  "Explicit stream is supported only for row-wise reductions");
+            }
             auto result = thrust::reduce(_begin, _end, init, op);
 
             // Return a fusion_array with a constant iterator of the result
@@ -1730,8 +1735,8 @@ class fusion_array {
             }
             // Transpose, then perform row-wise reduction on the transposed
             // array. The result is a 1D array of length num_cols (original).
-            return this->transpose().template reduce<2, ResultProperties>(init,
-                                                                          op);
+            return this->transpose().template reduce<2, ResultProperties>(
+              init, op, std::integral_constant<int, 2>{}, stream);
         } else if constexpr (Axis == 2) {
             // Row-wise reduction (for 2D arrays)
             if (_shape.size() < 2) {
@@ -1749,7 +1754,7 @@ class fusion_array {
             // Perform row-wise reduction using reduce_by_key
             auto output = result_vec->begin();
 
-            thrustx::reduce_by_n(_begin, _end, output, num_cols, op, init);
+            thrustx::reduce_by_n(_begin, _end, output, num_cols, op, init, stream);
 
             // Return result as fusion_array
             using result_iterator = typename thrust::device_vector<
