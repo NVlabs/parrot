@@ -44,7 +44,8 @@ void reduce_by_n_impl(InputIterator first,
                       OutputIterator out,
                       int N,
                       BinaryOp op,
-                      T init) {
+                      T init,
+                      cudaStream_t stream = 0) {
     if (N <= 0) {
         throw std::invalid_argument("reduce_by_n: N must be positive");
     }
@@ -71,7 +72,8 @@ void reduce_by_n_impl(InputIterator first,
                                        num_segments,
                                        N,  // segment_size
                                        op,
-                                       init);
+                                       init,
+                                       stream);
 
     // Raw CUDA allocation - no initialization kernel
     cudaMalloc(&d_temp_storage, temp_storage_bytes);
@@ -84,7 +86,8 @@ void reduce_by_n_impl(InputIterator first,
                                        num_segments,
                                        N,  // segment_size
                                        op,
-                                       init);
+                                       init,
+                                       stream);
 
     // Free temp storage
     cudaFree(d_temp_storage);
@@ -283,6 +286,21 @@ void reduce_by_n(InputIterator first,
                  BinaryOp op,
                  T init) {
     reduce_by_n_impl(first, last, out, N, op, init);
+}
+
+// Explicit stream for callers that order producers and consumers themselves.
+template <typename InputIterator,
+          typename OutputIterator,
+          typename BinaryOp,
+          typename T>
+void reduce_by_n(InputIterator first,
+                 InputIterator last,
+                 OutputIterator out,
+                 int N,
+                 BinaryOp op,
+                 T init,
+                 cudaStream_t stream) {
+    reduce_by_n_impl(first, last, out, N, op, init, stream);
 }
 
 // Backward compatibility overload (uses default initialization)
