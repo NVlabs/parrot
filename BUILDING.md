@@ -24,8 +24,8 @@ The most common setup issue is the missing NVCC compiler. Here's how to install 
 
 ### Option 2: NVIDIA HPC SDK
 
-1. Download from [NVIDIA HPC SDK Downloads](https://developer.nvidia.com/hpc-sdk-downloads)
-2. Follow the [HPC SDK Installation Guide](https://docs.nvidia.com/hpc-sdk/hpc-sdk-install-guide/index.html)
+1. Download from [NVIDIA HPC SDK Downloads](https://developer.nvidia.com/hpc-sdk/releases/26.9)
+2. Follow the [HPC SDK Installation Guide](https://docs.nvidia.com/hpc-sdk/installation-guide/index.html)
 
 ### Environment Configuration
 
@@ -38,8 +38,8 @@ export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
 # For NVIDIA HPC SDK installations
-# export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda
-# export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/26.5/compilers/bin:$PATH
+# export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3
+# export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin:$PATH
 ```
 
 Reload your shell configuration:
@@ -67,7 +67,7 @@ If CMake cannot find the NVCC compiler:
    ```bash
    cmake -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc ..
    # or for HPC SDK:
-   cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.5/compilers/bin/nvcc ..
+   cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin/nvcc ..
    ```
 
 2. **Check NVCC is in PATH**:

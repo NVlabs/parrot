@@ -15,7 +15,7 @@ jobs:
       
     - name: Verify CUDA installation (HPC SDK)
       run: |
-        nvcc --version
+        /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin/nvcc --version
         nvidia-smi
         
     - name: Verify dependencies
@@ -29,27 +29,29 @@ jobs:
       
     - name: Configure with CMake (for dependencies)
       env:
-        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1
-        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
       run: |
         cd build
-        cmake .. -DCUDA_ARCH=AUTO  # Auto-detect your GPU architecture
+        cmake .. -DCUDA_ARCH=AUTO -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin/nvcc
         
     - name: Build project dependencies
       env:
-        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1
-        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
       run: |
         cd build
         cmake --build . --target doctest -j$(nproc) || echo "Doctest target not found, continuing..."
         
     - name: Run examples script in test mode
       run: |
+        export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin:$PATH
         chmod +x scripts/run-examples.sh
         ./scripts/run-examples.sh --test
         
     - name: Run examples script in normal mode (fallback if no expected outputs)
       if: failure()  # Only run if test mode fails (likely due to missing expected outputs)
       run: |
+        export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin:$PATH
         echo "Test mode failed, running in normal mode..."
         ./scripts/run-examples.sh --run
