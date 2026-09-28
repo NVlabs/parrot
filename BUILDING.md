@@ -84,6 +84,16 @@ If CMake cannot find the NVCC compiler:
    sudo dnf install akmod-nvidia
    ```
 
+### GCC host compiler compatibility
+
+CUDA 13.3 rejects GCC 16 as an NVCC host compiler. If GCC 16 is your system
+default, install a versioned GCC 15 or older with C++20 support (for example,
+`sudo pacman -S gcc15` on Arch Linux). On a fresh build, CMake automatically
+selects the compatible compiler for both C++ and CUDA. If a build directory
+already cached GCC 16 for C++, CMake uses the compatible compiler for CUDA
+while keeping the cached C++ selection. You can explicitly select the CUDA
+host compiler with `CMAKE_CUDA_HOST_COMPILER` or `CUDAHOSTCXX`.
+
 </details>
 
 ## CUDA Architecture Configuration
