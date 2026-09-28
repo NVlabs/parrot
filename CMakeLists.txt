@@ -64,8 +64,8 @@ if(NOT DEFINED CMAKE_CUDA_COMPILER OR CMAKE_CUDA_COMPILER STREQUAL "")
         message(STATUS "Auto-detected NVCC: ${NVCC_EXECUTABLE} (CUDA ${PARROT_SELECTED_VERSION})")
 
         # Point CUDA_HOME at the toolkit bundled next to this nvcc (HPC SDK).
-        # Pick the newest versioned cuda/<major>.<minor> dir (e.g. 13.2 with HPC
-        # SDK 26.5), falling back to the generic cuda symlink.
+        # Pick the newest versioned cuda/<major>.<minor> dir (e.g. 13.3 with HPC
+        # SDK 26.9), falling back to the generic cuda symlink.
         get_filename_component(NVCC_DIR "${NVCC_EXECUTABLE}" DIRECTORY)
         get_filename_component(HPC_SDK_BASE "${NVCC_DIR}" DIRECTORY)
         file(GLOB HPC_SDK_CUDA_DIRS "${HPC_SDK_BASE}/cuda/[0-9]*.[0-9]*")
@@ -86,7 +86,7 @@ if(NOT DEFINED CMAKE_CUDA_COMPILER OR CMAKE_CUDA_COMPILER STREQUAL "")
             "No CUDA >= ${PARROT_MIN_CUDA_VERSION} toolkit was found via CUDA_HOME, "
             "the NVIDIA HPC SDK (/opt/nvidia/hpc_sdk), /usr/local/cuda, or PATH.\n"
             "Install the HPC SDK or set the compiler explicitly, e.g.\n"
-            "  cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.5/compilers/bin/nvcc ..")
+            "  cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin/nvcc ..")
     else()
         message(FATAL_ERROR
             "Could not find an nvcc compiler. Install CUDA >= ${PARROT_MIN_CUDA_VERSION} "
@@ -129,7 +129,7 @@ if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS "13.0")
         "Required: CUDA >= 13.0\n"
         "Found: CUDA ${CMAKE_CUDA_COMPILER_VERSION}"
         "Use cmake -DCMAKE_CUDA_COMPILER=/path/to/nvcc .. to specify the CUDA compiler."
-        "i.e. cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.5/compilers/bin/nvcc ..")
+        "i.e. cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin/nvcc ..")
 endif()
 
 message(STATUS "CUDA ${CMAKE_CUDA_COMPILER_VERSION} detected - meets minimum requirement (13.0+)")

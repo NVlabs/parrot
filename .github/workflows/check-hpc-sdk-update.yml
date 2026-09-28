@@ -78,7 +78,7 @@ jobs:
           - **Current pinned version:** \`${CURRENT_VERSION}\`
           - **Latest release:** \`${LATEST_VERSION}\`
 
-          Please consider upgrading references from \`Linux_x86_64/${CURRENT_VERSION}\` to \`Linux_x86_64/${LATEST_VERSION}\` in \`CMakeLists.txt\`, \`BUILDING.md\`, the CI workflows, and \`scripts/run-examples.sh\`, and verifying that the build and tests still pass. Note that the bundled CUDA subversion (e.g. \`cuda/13.1\`) may also change between HPC SDK releases.
+          Please consider upgrading references from \`Linux_x86_64/${CURRENT_VERSION}\` to \`Linux_x86_64/${LATEST_VERSION}\` in \`CMakeLists.txt\`, \`BUILDING.md\`, the CI workflows, and \`scripts/run-examples.sh\`, and verifying that the build and tests still pass. Note that the bundled CUDA subversion (e.g. \`cuda/13.3\`) may also change between HPC SDK releases.
 
           _This issue was opened automatically by the \`Check HPC SDK Update\` workflow._
           EOF

@@ -39,7 +39,7 @@ jobs:
       
     - name: Verify CUDA installation (HPC SDK)
       run: |
-        nvcc --version
+        /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin/nvcc --version
         nvidia-smi
         
     - name: Verify dependencies
@@ -53,16 +53,16 @@ jobs:
       
     - name: Configure with CMake
       env:
-        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1
-        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
       run: |
         cd build
-        cmake .. -DCUDA_ARCH=AUTO  # Auto-detect your GPU architecture
+        cmake .. -DCUDA_ARCH=AUTO -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin/nvcc
         
     - name: Build project
       env:
-        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1
-        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.5/cuda/13.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+        CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3
+        LD_LIBRARY_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
       run: |
         cd build
         cmake --build . -j$(nproc)
@@ -102,4 +102,3 @@ jobs:
         ./test_top10
         echo "Running fun tests..."
         ./test_fun
-
