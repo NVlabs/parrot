@@ -41,7 +41,9 @@
 #include <cmath>
 #include <cstdint>
 #include <ctime>
+#include <cuda/functional>
 #include <cuda/iterator>
+#include <cuda/std/functional>
 #include <initializer_list>
 #include <iomanip>
 #include <iostream>
@@ -1701,12 +1703,17 @@ class fusion_array {
               typename BinaryOp>
     auto reduce(T init,
                 BinaryOp op,
-                std::integral_constant<int, Axis> /*axis*/ = {}) const {
+                std::integral_constant<int, Axis> /*axis*/ = {},
+                cudaStream_t stream                        = 0) const {
         using value_type = typename std::iterator_traits<Iterator>::value_type;
 
         if constexpr (Axis == 0) {
             // Default reduction (all elements)
             // Perform the reduction to get a single scalar value
+            if (stream != 0) {
+                throw std::invalid_argument(
+                  "Explicit stream is supported only for row-wise reductions");
+            }
             auto result = thrust::reduce(_begin, _end, init, op);
 
             // Return a fusion_array with a constant iterator of the result
@@ -1730,8 +1737,8 @@ class fusion_array {
             }
             // Transpose, then perform row-wise reduction on the transposed
             // array. The result is a 1D array of length num_cols (original).
-            return this->transpose().template reduce<2, ResultProperties>(init,
-                                                                          op);
+            return this->transpose().template reduce<2, ResultProperties>(
+              init, op, std::integral_constant<int, 2>{}, stream);
         } else if constexpr (Axis == 2) {
             // Row-wise reduction (for 2D arrays)
             if (_shape.size() < 2) {
@@ -1749,7 +1756,8 @@ class fusion_array {
             // Perform row-wise reduction using reduce_by_key
             auto output = result_vec->begin();
 
-            thrustx::reduce_by_n(_begin, _end, output, num_cols, op, init);
+            thrustx::reduce_by_n(
+              _begin, _end, output, num_cols, op, init, stream);
 
             // Return result as fusion_array
             using result_iterator = typename thrust::device_vector<
@@ -1797,7 +1805,7 @@ class fusion_array {
                                 scalar_properties_t<host_value_type>>(front());
         } else {
             return reduce<Axis>(std::numeric_limits<value_type>::lowest(),
-                                thrust::maximum<value_type>());
+                                cuda::maximum<value_type>());
         }
     }
 
@@ -1826,7 +1834,7 @@ class fusion_array {
                                 scalar_properties_t<host_value_type>>(back());
         } else {
             return reduce<Axis>(std::numeric_limits<value_type>::max(),
-                                thrust::minimum<value_type>());
+                                cuda::minimum<value_type>());
         }
     }
 
@@ -1845,7 +1853,7 @@ class fusion_array {
             // Zero out masked elements and sum (no materialization)
             return (_mask() * _data()).template sum<Axis>();
         } else {
-            return reduce<Axis>(value_type(0), thrust::plus<value_type>());
+            return reduce<Axis>(value_type(0), cuda::std::plus<value_type>());
         }
     }
 
@@ -1865,7 +1873,7 @@ class fusion_array {
                                              Axis == 0 ? order::constant
                                                        : order::unknown,
                                              Axis == 0>;
-        return reduce<Axis, result_properties>(0, thrust::logical_or<int>());
+        return reduce<Axis, result_properties>(0, cuda::std::logical_or<int>());
     }
 
     /**
@@ -1884,7 +1892,8 @@ class fusion_array {
                                              Axis == 0 ? order::constant
                                                        : order::unknown,
                                              Axis == 0>;
-        return reduce<Axis, result_properties>(1, thrust::logical_and<int>());
+        return reduce<Axis, result_properties>(1,
+                                               cuda::std::logical_and<int>());
     }
 
     /**
@@ -1967,7 +1976,7 @@ class fusion_array {
      */
     template <int Axis = 0, typename T = int>
     [[nodiscard]] auto prod() const {
-        return reduce<Axis>(value_type(1), thrust::multiplies<value_type>());
+        return reduce<Axis>(value_type(1), cuda::std::multiplies<value_type>());
     }
 
     /**
@@ -2062,7 +2071,8 @@ class fusion_array {
                                              Axis == 0 ? order::ascending
                                                        : order::unknown,
                                              Properties::nonempty>;
-        return scan<Axis, result_properties>(thrust::logical_or<value_type>());
+        return scan<Axis, result_properties>(
+          cuda::std::logical_or<value_type>());
     }
 
     /**
@@ -2080,7 +2090,8 @@ class fusion_array {
                                              Axis == 0 ? order::descending
                                                        : order::unknown,
                                              Properties::nonempty>;
-        return scan<Axis, result_properties>(thrust::logical_and<value_type>());
+        return scan<Axis, result_properties>(
+          cuda::std::logical_and<value_type>());
     }
 
     /**
@@ -2101,7 +2112,7 @@ class fusion_array {
                                                  Axis == 0 ? order::descending
                                                            : order::unknown,
                                                  Properties::nonempty>;
-            return scan<Axis, result_properties>(thrust::minimum<value_type>());
+            return scan<Axis, result_properties>(cuda::minimum<value_type>());
         }
     }
 
@@ -2123,7 +2134,7 @@ class fusion_array {
                                                  Axis == 0 ? order::ascending
                                                            : order::unknown,
                                                  Properties::nonempty>;
-            return scan<Axis, result_properties>(thrust::maximum<value_type>());
+            return scan<Axis, result_properties>(cuda::maximum<value_type>());
         }
     }
 
@@ -2138,7 +2149,7 @@ class fusion_array {
     template <int Axis = 0>
     [[nodiscard]] auto sums(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
-        return scan<Axis>(thrust::plus<value_type>());
+        return scan<Axis>(cuda::std::plus<value_type>());
     }
 
     /**
@@ -2152,7 +2163,7 @@ class fusion_array {
     template <int Axis = 0>
     [[nodiscard]] auto prods(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
-        return scan<Axis>(thrust::multiplies<value_type>());
+        return scan<Axis>(cuda::std::multiplies<value_type>());
     }
 
     /**
@@ -2228,7 +2239,7 @@ class fusion_array {
                                           row_indices + size(),
                                           _begin,
                                           result_vec->begin(),
-                                          thrust::equal_to<int>(),
+                                          cuda::std::equal_to<int>(),
                                           op);
 
             // Return result as fusion_array
@@ -2602,7 +2613,7 @@ class fusion_array {
             thrust::inclusive_scan(indices_vec->begin(),
                                    indices_vec->end(),
                                    indices_vec->begin(),
-                                   thrust::maximum<int>{});
+                                   cuda::maximum<int>{});
 
             // Create result vector using permutation iterator and copy
             auto
