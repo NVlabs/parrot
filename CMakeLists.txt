@@ -96,8 +96,55 @@ else()
     message(STATUS "Using manually specified NVCC: ${CMAKE_CUDA_COMPILER}")
 endif()
 
+# CUDA 13.3 does not support GCC 16 as an nvcc host compiler. On systems
+# where it is the default, use a separately installed GCC 15 (or older) for
+# both C++ and CUDA, unless the user has selected a compiler explicitly.
+set(PARROT_COMPAT_GXX_NAMES
+    g++-15 g++-14 g++-13 g++-12 g++-11 g++-10)
+if(NOT CMAKE_CXX_COMPILER AND "$ENV{CXX}" STREQUAL "" AND
+   NOT CMAKE_CUDA_HOST_COMPILER AND "$ENV{CUDAHOSTCXX}" STREQUAL "" AND
+   "$ENV{NVCC_CCBIN}" STREQUAL "")
+    find_program(PARROT_DEFAULT_CXX NAMES c++ g++)
+    if(PARROT_DEFAULT_CXX)
+        execute_process(
+            COMMAND "${PARROT_DEFAULT_CXX}" -v
+            OUTPUT_VARIABLE PARROT_DEFAULT_CXX_VERSION
+            ERROR_VARIABLE PARROT_DEFAULT_CXX_VERSION)
+        if(PARROT_DEFAULT_CXX_VERSION MATCHES "gcc version ([0-9]+)" AND
+           CMAKE_MATCH_1 GREATER 15)
+            find_program(PARROT_COMPAT_GXX NAMES ${PARROT_COMPAT_GXX_NAMES})
+            if(PARROT_COMPAT_GXX)
+                set(CMAKE_CXX_COMPILER "${PARROT_COMPAT_GXX}")
+                set(CMAKE_CUDA_HOST_COMPILER "${PARROT_COMPAT_GXX}")
+                message(STATUS "Using ${PARROT_COMPAT_GXX} for C++ and CUDA (default GCC is too new for nvcc)")
+            endif()
+        endif()
+    endif()
+endif()
+
 # Initialize project with just CXX language first
 project(parrot LANGUAGES CXX)
+
+# Existing build trees may already have a newer C++ compiler cached. Select a
+# supported host compiler before enable_language(CUDA), without changing an
+# explicitly selected CUDA host compiler.
+if(NOT CMAKE_CUDA_HOST_COMPILER AND "$ENV{CUDAHOSTCXX}" STREQUAL "" AND
+   "$ENV{NVCC_CCBIN}" STREQUAL "" AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 15)
+        find_program(PARROT_COMPAT_GXX NAMES ${PARROT_COMPAT_GXX_NAMES})
+        if(PARROT_COMPAT_GXX)
+            set(CMAKE_CUDA_HOST_COMPILER "${PARROT_COMPAT_GXX}")
+            message(STATUS "Using ${PARROT_COMPAT_GXX} as the CUDA host compiler (GCC ${CMAKE_CXX_COMPILER_VERSION} is too new for nvcc)")
+        else()
+            message(FATAL_ERROR
+                "GCC ${CMAKE_CXX_COMPILER_VERSION} is too new for nvcc. "
+                "Install GCC 15 (or an older version supporting C++20), "
+                "or set CMAKE_CUDA_HOST_COMPILER explicitly.")
+        endif()
+    else()
+        set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
+    endif()
+endif()
 
 # Configure ccache if available
 find_program(CCACHE_PROGRAM ccache)
