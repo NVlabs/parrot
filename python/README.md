@@ -38,8 +38,10 @@ print(result)  # 4
 ## Installation
 
 ```bash
-pip install numpy cupy "cuda-cccl[cu13]"  # or [cu12] for CUDA 12
+pip install "numpy>=1.21.0,<2.5" cupy "cuda-cccl[cu13]"  # or [cu12] for CUDA 12
 ```
+
+NumPy is temporarily limited to versions below 2.5 because `numba-cuda-mlir` 0.5.4 initializes a unitless `NaT`, which NumPy 2.5 deprecates. The bound can be lifted once the CUDA compiler dependency fixes that initialization.
 
 ## API Reference
 
