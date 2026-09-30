@@ -292,10 +292,9 @@ class ParrotArray:
         return f"ParrotArray({pairs_list}, dtype={self.dtype.__name__})"
 
     def _sanitize_op(self, op):
-        """Ensure op has a valid name and annotations for CUDA."""
-        # Fast path: not a lambda — skip renaming and expensive inspect calls.
-        # The cuda.compute library handles type inference from the iterator
-        # when annotations are absent; we only need inspect for lambdas.
+        """Give lambdas a valid CUDA name while preserving explicit annotations."""
+        # Named functions can pass through unchanged; CUDA infers any
+        # unannotated argument types from the iterator.
         name = getattr(op, "__name__", "")
         if name and name != "<lambda>":
             return op
@@ -311,6 +310,7 @@ class ParrotArray:
                 closure_hash = hash(closure_vals)
             code_hash = hash((op.__code__.co_code, closure_hash))
             new_name = f"op_{code_hash:x}".replace("-", "m")
+            annotations = op.__annotations__.copy()
             op = types.FunctionType(
                 op.__code__,
                 op.__globals__,
@@ -318,20 +318,11 @@ class ParrotArray:
                 argdefs=op.__defaults__,
                 closure=op.__closure__,
             )
+            op.__annotations__ = annotations
 
-        # Add annotations if missing (helps Numba inference)
-        if not getattr(op, "__annotations__", None):
-            try:
-                sig = inspect.signature(op)
-                annotations = {}
-                for param in sig.parameters:
-                    annotations[param] = self.dtype
-                if "return" not in annotations:
-                    annotations["return"] = self.dtype
-                op.__annotations__ = annotations
-            except Exception:
-                pass
-
+        # Infer unannotated callbacks from the iterator. ZipIterator inputs
+        # are pairs, so annotating their arguments with self.dtype would force
+        # CUDA to compile tuple operations as if they received a scalar.
         return op
 
     def _sanitize_predicate(self, pred):

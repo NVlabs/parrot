@@ -75,6 +75,15 @@ class TestParrot:
         expected = sum(x * x + 1 for x in range(10))
         assert result == expected
 
+    def test_map_preserves_explicit_return_dtype(self):
+        """An annotated callback controls the intermediate CUDA precision."""
+        op = lambda x: x + 1  # noqa: E731 - exercise lambda renaming
+        op.__annotations__ = {"x": np.int64, "return": np.float32}
+        values = parrot.array([16_777_218], dtype=np.int64)
+        # The float32 intermediate rounds 16777219 to 16777220 before collect
+        # converts it back to the array's int64 output dtype.
+        assert values.map(op).to_host() == [16_777_220]
+
     def test_absolute_value(self):
         """Test absolute value."""
         result = parrot.range(10).add(-5).abs().sum()
@@ -1345,6 +1354,13 @@ class TestPairs:
         # Pairs: [(10,1), (20,2), (30,3)] -> sum each pair
         result = a.pairs(b).map(lambda t: t[0] + t[1]).to_host()
         assert result == [11, 22, 33]
+
+    def test_pairs_map_chain_with_mixed_dtypes(self):
+        """Infer the pair input, then the scalar input of the next map."""
+        a = parrot.array([1.5, 2.5], dtype=np.float32)
+        b = parrot.array([1, 2], dtype=np.int32)
+        result = a.pairs(b).map(lambda t: t[0] + t[1]).map(lambda x: x * 2)
+        assert result.to_host() == [5.0, 9.0]
 
     def test_pairs_preserves_length(self):
         """pairs preserves the common length."""
