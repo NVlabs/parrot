@@ -16,12 +16,12 @@
         <img src="https://github.com/NVLabs/parrot/actions/workflows/unit-tests.yml/badge.svg" /></a>
 </p>
 
-**Parrot** is an array fusion GPU library built on NVIDIA's [CCCL libaries](https://nvidia.github.io/cccl/unstable/cpp.html#cccl-cpp-libraries) (Thrust/CUB). It provides efficient GPU-accelerated operations with lazy evaluation semantics, allowing for chaining of operations without unnecessary intermediate materializations.
+**Parrot** is an array fusion GPU library built on NVIDIA's [CCCL libraries](https://nvidia.github.io/cccl/unstable/cpp.html#cccl-cpp-libraries) (Thrust/CUB). It provides efficient GPU-accelerated operations with lazy evaluation semantics, allowing for chaining of operations without unnecessary intermediate materializations.
 
 ## ✨ Features
 
 - **Implicit Fusion** - Implicit fusion of operations
-- **GPU Acceleration** - Built on NVIDIA's [CCCL libaries](https://nvidia.github.io/cccl/unstable/cpp.html#cccl-cpp-libraries) (Thrust/CUB) for high performance
+- **GPU Acceleration** - Built on NVIDIA's [CCCL libraries](https://nvidia.github.io/cccl/unstable/cpp.html#cccl-cpp-libraries) (Thrust/CUB) for high performance
 - **Chainable API** - Clean, expressive syntax for complex operations
 - **Header-Only** - Simple integration with `#include "parrot.hpp"`
 
@@ -113,7 +113,9 @@ See detailed comparisons in our [documentation](https://nvlabs.github.io/parrot/
 The [`examples/`](examples/) directory contains:
 
 - **`getting_started/`** - Simple examples to get started
-- **`thrust/`** - Parrot implementations of Thrust examples  
+- **`machine_learning/`** - Machine learning examples
+- **`thrust/`** - Parrot implementations of Thrust examples
+- **`real_world/`** - Parrot versions of examples from open source projects
 
 
 ## 🛠️ Development
@@ -160,11 +162,12 @@ parrot/
 ├── thrustx.hpp             # Extended Thrust utilities
 ├── examples/               # Example code
 │   ├── getting_started/    # Simple getting-started examples
+│   ├── machine_learning/   # Softmax, more to come
 │   ├── thrust/             # Parrot versions of Thrust examples
-│   ├── real_world/         # Parrot versions of examples from open source projects
-├── tests/                  # Unit tests
+│   └── real_world/         # Parrot versions of examples from open source projects
 ├── docs/                   # Documentation source
-├── scripts/                # Development scripts
+├── tests/                  # Unit tests
+└── scripts/                # Development scripts
 ```
 
 ## 🤝 Contributing

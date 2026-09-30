@@ -8,7 +8,9 @@ This document describes how to build, test, and generate documentation for the p
 - C++ compiler with C++20 support
 - NVIDIA CUDA Toolkit 13.0 or later
 - NVIDIA GPU with compute capability 7.0 or higher
-- Python 3 with pip (for documentation, optional)
+- Optional, for documentation
+  - Python 3 with pip (or [uv](https://docs.astral.sh/uv/))
+  - [Doxygen](https://www.doxygen.nl/)
 
 <details>
 <summary><strong>CUDA Installation</strong> (Click to expand if you need to install CUDA)</summary>
@@ -22,8 +24,8 @@ The most common setup issue is the missing NVCC compiler. Here's how to install 
 
 ### Option 2: NVIDIA HPC SDK
 
-1. Download from [NVIDIA HPC SDK Downloads](https://developer.nvidia.com/hpc-sdk-downloads)
-2. Follow the [HPC SDK Installation Guide](https://docs.nvidia.com/hpc-sdk/hpc-sdk-install-guide/index.html)
+1. Download from [NVIDIA HPC SDK Downloads](https://developer.nvidia.com/hpc-sdk/releases/26.9)
+2. Follow the [HPC SDK Installation Guide](https://docs.nvidia.com/hpc-sdk/installation-guide/index.html)
 
 ### Environment Configuration
 
@@ -36,8 +38,8 @@ export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
 # For NVIDIA HPC SDK installations
-# export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda
-# export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/compilers/bin:$PATH
+# export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3
+# export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin:$PATH
 ```
 
 Reload your shell configuration:
@@ -65,7 +67,7 @@ If CMake cannot find the NVCC compiler:
    ```bash
    cmake -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc ..
    # or for HPC SDK:
-   cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/compilers/bin/nvcc ..
+   cmake -DCMAKE_CUDA_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin/nvcc ..
    ```
 
 2. **Check NVCC is in PATH**:
@@ -81,6 +83,16 @@ If CMake cannot find the NVCC compiler:
    # CentOS/RHEL/Fedora
    sudo dnf install akmod-nvidia
    ```
+
+### GCC host compiler compatibility
+
+CUDA 13.3 rejects GCC 16 as an NVCC host compiler. If GCC 16 is your system
+default, install a versioned GCC 15 or older with C++20 support (for example,
+`sudo pacman -S gcc15` on Arch Linux). On a fresh build, CMake automatically
+selects the compatible compiler for both C++ and CUDA. If a build directory
+already cached GCC 16 for C++, CMake uses the compatible compiler for CUDA
+while keeping the cached C++ selection. You can explicitly select the CUDA
+host compiler with `CMAKE_CUDA_HOST_COMPILER` or `CUDAHOSTCXX`.
 
 </details>
 
@@ -154,7 +166,7 @@ The project uses Doxygen and optionally Sphinx for documentation.
 
 Install required Python packages (optional, for Sphinx):
 ```bash
-pip install sphinx sphinx-rtd-theme breathe
+pip install -r requirements.txt
 ```
 
 ## Generate Documentation

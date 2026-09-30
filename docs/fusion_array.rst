@@ -94,7 +94,7 @@ Fused Operations
 
 .. _cp-fusion-array-map2:
 
-.. doxygenfunction:: parrot::fusion_array::map2(const fusion_array<OtherIterator, OtherMaskIterator> &value, BinaryFunctor binary_op) const
+.. doxygenfunction:: parrot::fusion_array::map2(const fusion_array<OtherIterator, OtherMaskIterator, OtherProperties> &value, BinaryFunctor binary_op) const
 
 .. doxygenfunction:: parrot::fusion_array::map2(const T &value, BinaryFunctor binary_op) const
 
@@ -394,7 +394,7 @@ Copying
 
 .. _cp-fusion-array-replicate-mask:
 
-.. doxygenfunction:: parrot::fusion_array::replicate(const fusion_array<MaskIterType> &mask) const
+.. doxygenfunction:: parrot::fusion_array::replicate(const fusion_array<MaskIterType, MaskMaskIterator, MaskProperties> &mask) const
 
 .. note::
    **Mask overload (Materializing)**: ``replicate(mask_array)`` repeats each element according to 

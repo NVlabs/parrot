@@ -23,3 +23,4 @@ __pycache__/
 .texlive-cache/
 *.synctex.gz
 *.xdv
+git_sync_all.sh

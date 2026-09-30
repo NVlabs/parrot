@@ -42,6 +42,16 @@ LOGO_URL_SOURCES = [
 
 SIZE_SUFFIXES = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
 
+# GPU memory-op accounting. nsys reports transfer sizes in MB (1e6 bytes).
+H2D_OP = "[CUDA memcpy Host-to-Device]"
+BYTES_PER_MB = 1_000_000
+
+# Host-to-Device floor: minimum bytes copied to the device per input element
+# (N). Runs that transfer less are assumed to have computed on the host and are
+# excluded from the chart. Chosen below a bit-packed input (0.125 B/elem) yet
+# far above the handful of bytes a host-offloaded answer copies back.
+DEFAULT_MIN_H2D_BYTES_PER_N = 0.03
+
 
 def fetch_logo(name, cache_buster):
     """Try each logo source in order; return a PIL Image or None."""
@@ -127,6 +137,81 @@ def load_kernel_data(file_path):
     except Exception as e:
         print(f"Error reading {file_path}: {e}")
         return None
+
+
+def load_memcpy_time(base_name):
+    """Load GPU memcpy operations so their time counts toward the total.
+
+    Returns a DataFrame with the same columns as ``load_kernel_data``
+    (``Name``, ``Total Time (ns)``, ``Instances``) or ``None`` if unavailable.
+    """
+    path = base_name + "_cuda_gpu_mem_time_sum.csv"
+    if not os.path.exists(path):
+        return None
+    try:
+        data = pd.read_csv(path)
+        data = data.rename(columns={"Operation": "Name", "Count": "Instances"})
+        return data[["Name", "Total Time (ns)", "Instances"]]
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return None
+
+
+def load_h2d_bytes(base_name):
+    """Total Host-to-Device bytes transferred for a run (0.0 if unknown)."""
+    path = base_name + "_cuda_gpu_mem_size_sum.csv"
+    if not os.path.exists(path):
+        return 0.0
+    try:
+        data = pd.read_csv(path)
+        h2d = data[data["Operation"] == H2D_OP]
+        if h2d.empty:
+            return 0.0
+        return float(h2d["Total (MB)"].sum()) * BYTES_PER_MB
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return 0.0
+
+
+def resolve_n(subdir_path, n_value):
+    """Determine the input size N: explicit sweep value, else ``n.txt``."""
+    if n_value is not None:
+        return n_value
+    n_file = os.path.join(subdir_path, "n.txt")
+    if os.path.exists(n_file):
+        try:
+            with open(n_file) as f:
+                return int(f.read().strip())
+        except Exception:
+            return None
+    return None
+
+
+def h2d_floor_excluded(base_name, n, min_bytes_per_n, label):
+    """Warn and return True when a run copies too little data to the device.
+
+    A genuine GPU implementation must move its input onto the device, so its
+    Host-to-Device transfer scales with N.  Runs that fall below the floor are
+    assumed to have computed on the host and are excluded from the chart.
+    Disabled when ``min_bytes_per_n <= 0`` or N is unknown.
+    """
+    if n is None or min_bytes_per_n <= 0:
+        return False
+    floor = min_bytes_per_n * n
+    h2d = load_h2d_bytes(base_name)
+    if h2d < floor:
+        print(
+            f"⚠️  Excluding '{label}': only {h2d:,.0f} B copied Host-to-Device "
+            f"(< floor {floor:,.0f} B = {min_bytes_per_n} B/elem × N={n:,}). "
+            "Computation likely ran on the host, not the GPU."
+        )
+        return True
+    return False
+
+
+def label_csv_files(base_name):
+    """All per-run CSV artifacts for a given output base name."""
+    return [base_name + "_" + report + ".csv" for report in CSV_REPORTS]
 
 
 def rotate(lst, n):
@@ -308,20 +393,23 @@ def run_nsys(file_path, output_dir, verbose, n_value=None):
     return nsys_rep, sqlite_file
 
 
+CSV_REPORTS = [
+    "cuda_gpu_kern_sum",
+    "cuda_api_sum",
+    "cuda_gpu_mem_time_sum",
+    "cuda_gpu_mem_size_sum",
+]
+
+
 def generate_csv(nsys_rep, base_name, verbose):
-    command = [
-        "nsys",
-        "stats",
-        "--force-overwrite",
-        "true",
-        "--report",
-        "cuda_gpu_kern_sum",
-        "--report",
-        "cuda_api_sum",
+    command = ["nsys", "stats", "--force-overwrite", "true"]
+    for report in CSV_REPORTS:
+        command += ["--report", report]
+    command += [
         "--format",
-        "csv,csv",
+        ",".join("csv" for _ in CSV_REPORTS),
         "--output",
-        base_name + "," + base_name,
+        ",".join(base_name for _ in CSV_REPORTS),
         nsys_rep,
     ]
     try:
@@ -365,6 +453,11 @@ def run_profiler(args):
         generate_csv(nsys_rep, base_name, args.verbose)
         clean_up([nsys_rep, sqlite_file])
 
+        n = resolve_n(subdir_path, None)
+        label = os.path.basename(base_name)
+        if h2d_floor_excluded(base_name, n, args.min_h2d_bytes_per_n, label):
+            clean_up(label_csv_files(base_name))
+
 
 def run_sweep_profiler(args, n_values):
     subdir_path = os.path.join(os.getcwd(), args.subdir)
@@ -405,19 +498,22 @@ def run_sweep_profiler(args, n_values):
 
                 csv_path = base_name + "_cuda_gpu_kern_sum.csv"
                 df = load_kernel_data(csv_path)
-                if df is not None:
-                    results[label][n_val] = df["Total Time (ns)"].sum()
+                excluded = h2d_floor_excluded(
+                    base_name,
+                    n_val,
+                    args.min_h2d_bytes_per_n,
+                    f"{label} N={format_size(n_val)}",
+                )
+                if df is not None and not excluded:
+                    total = df["Total Time (ns)"].sum()
+                    mem_df = load_memcpy_time(base_name)
+                    if mem_df is not None and not mem_df.empty:
+                        total += mem_df["Total Time (ns)"].sum()
+                    results[label][n_val] = total
                 else:
                     failed.append((file, n_val))
 
-                clean_up(
-                    [
-                        nsys_rep,
-                        sqlite_file,
-                        base_name + "_cuda_gpu_kern_sum.csv",
-                        base_name + "_cuda_api_sum.csv",
-                    ]
-                )
+                clean_up([nsys_rep, sqlite_file] + label_csv_files(base_name))
                 pbar.update(1)
 
     if failed:
@@ -669,13 +765,18 @@ def run_plotter(args):
         print(f"Directory {results_dir} does not exist or is invalid.")
         return
 
+    suffix = "_cuda_gpu_kern_sum.csv"
     for file_name in os.listdir(results_dir):
-        if file_name.endswith("_cuda_gpu_kern_sum.csv"):
+        if file_name.endswith(suffix):
             file_path = os.path.join(results_dir, file_name)
             df = load_kernel_data(file_path)
             if df is not None:
+                base_name = file_path[: -len(suffix)]
+                mem_df = load_memcpy_time(base_name)
+                if mem_df is not None and not mem_df.empty:
+                    df = pd.concat([df, mem_df], ignore_index=True)
                 data_frames.append(df)
-                labels.append(file_name.replace("_cuda_gpu_kern_sum.csv", ""))
+                labels.append(file_name.replace(suffix, ""))
 
     if data_frames:
         create_stacked_bar_chart(data_frames, labels, args.subdir, args.export_html)
@@ -698,6 +799,12 @@ def main():
         help="skip profiling and only generate plots",
     )
     parser.add_argument(
+        "-np",
+        "--no-plot",
+        action="store_true",
+        help="run profiling without displaying a plot",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -718,6 +825,18 @@ def main():
         metavar=("LOWER", "UPPER"),
         help="sweep N over geometric 10x range and produce a line chart (e.g. -n 10K 10M)",
     )
+    parser.add_argument(
+        "--min-h2d-bytes-per-n",
+        type=float,
+        default=DEFAULT_MIN_H2D_BYTES_PER_N,
+        metavar="BYTES",
+        help=(
+            "floor for Host-to-Device bytes per input element (N). Runs that "
+            "transfer less are assumed to compute on the host and are excluded "
+            f"from the chart (default: {DEFAULT_MIN_H2D_BYTES_PER_N}; 0 disables). "
+            "Requires N from --sweep or an n.txt in the subdir."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -731,11 +850,13 @@ def main():
             results, n_values = load_sweep_results(args)
             if results is None:
                 return
-        create_line_chart(results, n_values, args.subdir, args.export_html)
+        if not args.no_plot:
+            create_line_chart(results, n_values, args.subdir, args.export_html)
     else:
         if not args.plot_only:
             run_profiler(args)
-        run_plotter(args)
+        if not args.no_plot:
+            run_plotter(args)
 
 
 if __name__ == "__main__":

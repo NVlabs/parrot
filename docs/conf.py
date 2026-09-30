@@ -24,6 +24,9 @@ author = "Conor Hoekstra"
 # Logo configuration
 html_logo = "_static/logo.png"
 
+# Favicon (multi-resolution .ico generated from logo.png)
+html_favicon = "_static/favicon.ico"
+
 # Furo theme options
 html_theme_options = {
     "sidebar_hide_name":

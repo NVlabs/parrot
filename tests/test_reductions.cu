@@ -204,3 +204,58 @@ TEST_CASE("ParrotTest - StatsModeNegativeTest") {
     auto result = parrot::stats::mode(arr);
     CHECK_EQ(result.value(), -1);  // -1 appears most frequently (3 times)
 }
+__global__ void fill_stream_input(int *values, int offset) {
+    int i = threadIdx.x;
+    if (i < 8) { values[i] = i + offset; }
+}
+
+__global__ void scale_stream_output(int *values) {
+    int i = threadIdx.x;
+    if (i < 2) { values[i] *= 2; }
+}
+
+TEST_CASE("ParrotTest - ExplicitStreamSegmentedReduction") {
+    thrust::device_vector<int> input(8, thrust::default_init);
+    thrust::device_vector<int> output(2, thrust::default_init);
+    cudaStream_t producer, reduction;
+    cudaEvent_t ready;
+    REQUIRE_EQ(cudaStreamCreateWithFlags(&producer, cudaStreamNonBlocking),
+               cudaSuccess);
+    REQUIRE_EQ(cudaStreamCreateWithFlags(&reduction, cudaStreamNonBlocking),
+               cudaSuccess);
+    REQUIRE_EQ(cudaEventCreateWithFlags(&ready, cudaEventDisableTiming),
+               cudaSuccess);
+
+    fill_stream_input<<<1, 32, 0, producer>>>(
+      thrust::raw_pointer_cast(input.data()), 1);
+    REQUIRE_EQ(cudaEventRecord(ready, producer), cudaSuccess);
+    REQUIRE_EQ(cudaStreamWaitEvent(reduction, ready), cudaSuccess);
+    thrustx::reduce_by_n(input.begin(),
+                         input.end(),
+                         output.begin(),
+                         4,
+                         cuda::std::plus<int>{},
+                         0,
+                         reduction);
+    scale_stream_output<<<1, 32, 0, reduction>>>(
+      thrust::raw_pointer_cast(output.data()));
+    REQUIRE_EQ(cudaStreamSynchronize(reduction), cudaSuccess);
+    CHECK_EQ(output[0], 20);
+    CHECK_EQ(output[1], 52);
+
+    auto matrix = parrot::array({1, 2, 3, 4, 5, 6, 7, 8}).reshape({2, 4});
+    auto sums   = matrix.reduce(
+      0, parrot::add{}, std::integral_constant<int, 2>{}, reduction);
+    REQUIRE_EQ(cudaStreamSynchronize(reduction), cudaSuccess);
+    auto host = sums.to_host();
+    CHECK_EQ(host[0], 10);
+    CHECK_EQ(host[1], 26);
+    CHECK_THROWS_AS(
+      (void)matrix.reduce(
+        0, parrot::add{}, std::integral_constant<int, 0>{}, reduction),
+      std::invalid_argument);
+
+    REQUIRE_EQ(cudaEventDestroy(ready), cudaSuccess);
+    REQUIRE_EQ(cudaStreamDestroy(reduction), cudaSuccess);
+    REQUIRE_EQ(cudaStreamDestroy(producer), cudaSuccess);
+}
