@@ -40,8 +40,7 @@ jobs:
     if: github.repository == 'NVLabs/parrot'
     
     env:
-      # Prefer Homebrew clang-tidy (LLVM 18) over system clang-tidy (LLVM 14)
-      PATH: /home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3
     
     steps:
     - name: Checkout code
@@ -53,33 +52,22 @@ jobs:
         echo "PATH is: $PATH"
         which -a clang-tidy || echo "No clang-tidy in PATH"
         
-        # Check if Homebrew clang-tidy (LLVM 18+) exists
-        if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
-          echo "✅ Found Homebrew clang-tidy"
-          /home/linuxbrew/.linuxbrew/bin/clang-tidy --version
-        else
-          echo "⚠️  Homebrew clang-tidy not found. Installing LLVM via Homebrew..."
-          
-          # Check if brew is available
-          if command -v brew &> /dev/null; then
-            echo "Installing LLVM (this may take a few minutes)..."
-            brew install llvm
-            echo "✅ LLVM installed successfully"
-          else
-            echo "❌ Homebrew is not installed on this runner."
-            echo "Please install Homebrew or LLVM 18+ manually:"
-            echo "  curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | bash"
-            echo "  brew install llvm"
-            exit 1
-          fi
+        # Keep the runner's system and user tool paths, with Homebrew preferred
+        # when present. run-clang-tidy.sh enforces the minimum LLVM version.
+        if [ -d /home/linuxbrew/.linuxbrew/bin ]; then
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+          echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
         fi
-        
-        # Verify installation
-        if [ -f "/home/linuxbrew/.linuxbrew/bin/clang-tidy" ]; then
+
+        if ! command -v clang-tidy &> /dev/null && command -v brew &> /dev/null; then
+          brew install llvm
+        fi
+
+        if command -v clang-tidy &> /dev/null; then
           echo "✅ clang-tidy is ready:"
-          /home/linuxbrew/.linuxbrew/bin/clang-tidy --version
+          clang-tidy --version
         else
-          echo "❌ Failed to setup clang-tidy"
+          echo "❌ Install clang-tidy (LLVM >= 21.1.8) on this runner."
           exit 1
         fi
         
