@@ -34,7 +34,7 @@ jobs:
     if: github.repository == 'NVLabs/parrot'
     
     env:
-      PATH: /home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      CUDA_HOME: /opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3
     
     steps:
     - name: Checkout code
@@ -43,6 +43,11 @@ jobs:
     - name: Setup IWYU
       run: |
         echo "Checking for include-what-you-use installation..."
+
+        if [ -d /home/linuxbrew/.linuxbrew/bin ]; then
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+          echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+        fi
         
         # Check if IWYU is already installed
         if command -v include-what-you-use &> /dev/null; then
@@ -117,6 +122,11 @@ jobs:
         include-what-you-use \
           -Xiwyu --no_fwd_decls \
           -Xiwyu --max_line_length=100 \
+          --cuda-path="$CUDA_HOME" \
+          --no-cuda-version-check \
+          -Wno-unknown-cuda-version \
+          -D_NV_RSQRT_SPECIFIER=noexcept \
+          -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/math_libs/13.3/include \
           -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3/include \
           -I$(pwd)/build/_deps/cccl-src/thrust \
           -I$(pwd)/build/_deps/cccl-src/cub \
@@ -135,11 +145,17 @@ jobs:
           include-what-you-use \
             -Xiwyu --no_fwd_decls \
             -Xiwyu --max_line_length=100 \
+            --cuda-path="$CUDA_HOME" \
+            --no-cuda-version-check \
+            -Wno-unknown-cuda-version \
+            -D_NV_RSQRT_SPECIFIER=noexcept \
             -I. \
+            -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/math_libs/13.3/include \
             -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/cuda/13.3/include \
             -I$(pwd)/build/_deps/cccl-src/thrust \
             -I$(pwd)/build/_deps/cccl-src/cub \
             -I$(pwd)/build/_deps/cccl-src/libcudacxx/include \
+            -I$(pwd)/build/_deps/doctest-src \
             -std=c++20 \
             -x cu \
             "$test_file" 2>&1 | tee -a iwyu_tests.log || echo "IWYU completed for $test_file"
