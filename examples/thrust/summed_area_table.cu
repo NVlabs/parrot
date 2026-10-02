@@ -18,6 +18,22 @@
 #include "parrot.hpp"
 
 int main() {
-    auto m = parrot::matrix(1, {3, 4});
+    int m = 3; // number of rows
+    int n = 4; // number of columns
+
+    auto data = parrot::matrix(1, {m, n});
+
+    // initial array
+    data.print();
+    // scan horizontally
+    data.sums<1>().print();
+    // transpose array
+    data.transpose().print();
+    // scan transpose horizontally
+    data.sums<1>().print();
+    // transpose the transpose
+    data.transpose().print();
+
+    // alternatively, without the intermidiate prints
     m.sums<2>().sums<1>().print();
 }

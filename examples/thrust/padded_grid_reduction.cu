@@ -18,8 +18,15 @@
 #include "parrot.hpp"
 
 int main() {
-    auto shape = {10, 16};
-    auto grid  = parrot::matrix(1.0, shape).rand();
-    auto mask  = parrot::range(16).lt(11).cycle({10, 16});
+    int M = 10; // number of rows
+    int n = 11; // number of columns excluding padding
+    int N = 16; // number of columns including padding
+
+    auto shape = {M, N};
+    
+    auto grid  = parrot::matrix(1.0f, shape).rand();
+    grid.print();
+    
+    auto mask  = parrot::range(N).lt(n).cycle(shape);
     grid.keep(mask).minmax().print();
 }

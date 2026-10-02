@@ -18,6 +18,8 @@
 #include "parrot.hpp"
 
 int main() {
-    auto matrix = parrot::matrix(89, {5, 8}).add(10).rand();
+    int R = 5; // number of rows
+    int C = 8; // number of columns
+    auto matrix = parrot::matrix(89, {R, C}).rand().add(10);
     matrix.sum<2>().print();
 }
