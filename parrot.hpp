@@ -2766,12 +2766,12 @@ class fusion_array {
             std::vector<std::string> formatted_values;
             formatted_values.reserve(host_values.size());
             int max_width = 1;
-            for (const auto &value : host_values) {
+            for (const auto &element : host_values) {
                 std::stringstream ss;
                 if constexpr (is_thrust_pair_v<value_type>) {
-                    ss << "(" << value.first << ", " << value.second << ")";
+                    ss << "(" << element.first << ", " << element.second << ")";
                 } else {
-                    ss << value;
+                    ss << element;
                 }
                 formatted_values.push_back(ss.str());
                 max_width = std::max(
@@ -2788,11 +2788,11 @@ class fusion_array {
                     cols *= _shape.at(i);
                 }
             }
-            for (int row = 0; row < rows; ++row) {
+            for (int row_index = 0; row_index < rows; ++row_index) {
                 for (int col = 0; col < cols; ++col) {
                     if (col > 0) { os << delimiter; }
                     os << std::setw(max_width)
-                       << formatted_values.at((row * cols) + col);
+                       << formatted_values.at((row_index * cols) + col);
                 }
                 os << '\n';
             }
