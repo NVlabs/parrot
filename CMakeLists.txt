@@ -289,7 +289,7 @@ set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 FetchContent_Declare(
   cccl
   GIT_REPOSITORY https://github.com/NVIDIA/cccl.git
-  GIT_TAG v3.4.3
+  GIT_TAG v3.5.0
   GIT_SHALLOW TRUE
   TIMEOUT 60
 )
