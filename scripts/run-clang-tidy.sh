@@ -177,7 +177,6 @@ fi
 
 # Find CUDA and Thrust installations
 THRUST_INCLUDE_DIR=""
-CUDA_PATH=""
 CCCL_INCLUDE_DIR=""
 
 # First priority: Use CCCL from build directory (has the correct Thrust version)
@@ -186,43 +185,42 @@ if [ -d "$PROJECT_ROOT/build/_deps/cccl-src" ]; then
     echo "Using CCCL (Thrust/CUB/libcudacxx) from build directory"
 fi
 
-# Find CUDA installation (prefer HPC SDK for CUDA runtime/stdlib)
-if [ -d "/opt/nvidia/hpc_sdk" ]; then
-    # Find the most recent HPC SDK version
-    HPC_SDK_VERSION=$(ls -1 /opt/nvidia/hpc_sdk/Linux_x86_64/ 2>/dev/null | sort -V | tail -n1)
-    if [ -n "$HPC_SDK_VERSION" ]; then
-        # Check for cuda directory in HPC SDK
-        if [ -d "/opt/nvidia/hpc_sdk/Linux_x86_64/$HPC_SDK_VERSION/cuda" ]; then
-            CUDA_PATH="/opt/nvidia/hpc_sdk/Linux_x86_64/$HPC_SDK_VERSION/cuda"
-            # Only use HPC SDK's include if we don't have CCCL
-            if [ -z "$CCCL_INCLUDE_DIR" ]; then
-                THRUST_INCLUDE_DIR="$CUDA_PATH/include"
-            fi
-            echo "Using HPC SDK CUDA at $CUDA_PATH"
+# Honor the workflow's toolkit selection, then try versioned HPC SDK toolkits.
+# Clang needs the actual CUDA root, not the HPC SDK's compilers directory.
+CUDA_CANDIDATES=("${CUDA_HOME:-}" "${CUDA_PATH:-}")
+while IFS= read -r toolkit; do
+    CUDA_CANDIDATES+=("$toolkit")
+done < <(ls -d /opt/nvidia/hpc_sdk/Linux_x86_64/*/cuda/[0-9]* 2>/dev/null | sort -Vr)
+CUDA_CANDIDATES+=("/usr/local/cuda" "/opt/cuda")
+if command -v nvcc &> /dev/null; then
+    CUDA_CANDIDATES+=("$(dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")")")
+fi
+
+CUDA_PATH=""
+for toolkit in "${CUDA_CANDIDATES[@]}"; do
+    if [ -f "$toolkit/include/cuda.h" ] && [ -d "$toolkit/nvvm/libdevice" ]; then
+        CUDA_PATH=$(readlink -f "$toolkit")
+        echo "Using CUDA at $CUDA_PATH"
+        if [ -z "$CCCL_INCLUDE_DIR" ]; then
+            THRUST_INCLUDE_DIR="$CUDA_PATH/include"
         fi
+        break
     fi
-fi
-
-# Fallback to standard CUDA installation
-if [ -z "$CUDA_PATH" ] && [ -d "/usr/local/cuda" ]; then
-    CUDA_PATH="/usr/local/cuda"
-    if [ -z "$CCCL_INCLUDE_DIR" ]; then
-        THRUST_INCLUDE_DIR="/usr/local/cuda/include"
-    fi
-    echo "Using standard CUDA at $CUDA_PATH"
-fi
-
-# Last resort: try to find nvcc in PATH
-if [ -z "$CUDA_PATH" ] && command -v nvcc &> /dev/null; then
-    CUDA_PATH=$(dirname $(dirname $(which nvcc)))
-    if [ -z "$CCCL_INCLUDE_DIR" ]; then
-        THRUST_INCLUDE_DIR="$CUDA_PATH/include"
-    fi
-    echo "Using CUDA from PATH at $CUDA_PATH"
-fi
-
+done
 if [ -z "$CUDA_PATH" ]; then
-    echo "Warning: Could not find CUDA installation."
+    echo "Error: Could not find CUDA installation. Set CUDA_HOME to the toolkit root."
+    exit 1
+fi
+
+# HPC SDK ships cuRAND separately from the CUDA toolkit. Clang's CUDA runtime
+# wrapper includes curand_mtgp32_kernel.h even when the project does not use it.
+CUDA_MATH_INCLUDE_DIR=""
+if [[ $CUDA_PATH == */cuda/* ]]; then
+    sdk_dir="${CUDA_PATH%/cuda/*}"
+    cuda_version="${CUDA_PATH##*/}"
+    if [ -f "$sdk_dir/math_libs/$cuda_version/include/curand_mtgp32_kernel.h" ]; then
+        CUDA_MATH_INCLUDE_DIR="$sdk_dir/math_libs/$cuda_version/include"
+    fi
 fi
 
 # Find doctest in the project directory
@@ -271,6 +269,9 @@ fi
 if [ -n "$CUDA_PATH" ]; then
     INCLUDE_ARGS="$INCLUDE_ARGS -I$CUDA_PATH/include"
 fi
+if [ -n "$CUDA_MATH_INCLUDE_DIR" ]; then
+    INCLUDE_ARGS="$INCLUDE_ARGS -I$CUDA_MATH_INCLUDE_DIR"
+fi
 # Fallback to legacy THRUST_INCLUDE_DIR if no CCCL
 if [ -n "$THRUST_INCLUDE_DIR" ] && [ -z "$CCCL_INCLUDE_DIR" ]; then
     INCLUDE_ARGS="$INCLUDE_ARGS -I$THRUST_INCLUDE_DIR"
@@ -289,13 +290,13 @@ cat > compile_commands.json << EOF
 [
   {
     "directory": "$PROJECT_ROOT",
-    "command": "clang++ -std=c++20 $INCLUDE_ARGS -x cuda --no-cuda-version-check parrot.hpp",
+    "command": "clang++ -std=c++20 $INCLUDE_ARGS -x cuda --cuda-path=$CUDA_PATH --no-cuda-version-check parrot.hpp",
     "file": "parrot.hpp"
   }$(for test_file in $TEST_FILES; do
     echo ","
     echo "  {"
     echo "    \"directory\": \"$PROJECT_ROOT\","
-    echo "    \"command\": \"clang++ -std=c++20 $INCLUDE_ARGS -x cuda --no-cuda-version-check $test_file\","
+    echo "    \"command\": \"clang++ -std=c++20 $INCLUDE_ARGS -x cuda --cuda-path=$CUDA_PATH --no-cuda-version-check $test_file\","
     echo "    \"file\": \"$test_file\""
     echo "  }"
 done)
@@ -374,6 +375,7 @@ run_clang_tidy() {
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Werror"
     
     # Add CUDA-specific flags to avoid false positive errors
+    EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=--cuda-path=$CUDA_PATH"
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=--no-cuda-version-check"
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-Xclang"
     EXTRA_ARGS_STRING="$EXTRA_ARGS_STRING -extra-arg=-fcuda-allow-variadic-functions"
@@ -478,4 +480,4 @@ fi
 # Cleanup
 rm -f compile_commands.json
 
-echo "All clang-tidy checks completed." 
+echo "All clang-tidy checks completed."
