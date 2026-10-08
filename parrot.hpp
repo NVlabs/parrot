@@ -22,7 +22,9 @@
 #include <thrust/count.h>
 #include <thrust/device_reference.h>
 #include <thrust/device_vector.h>
+#include <thrust/execution_policy.h>
 #include <thrust/functional.h>
+#include <thrust/host_vector.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
 #include <thrust/iterator/permutation_iterator.h>
@@ -34,6 +36,7 @@
 #include <thrust/random/uniform_real_distribution.h>
 #include <thrust/reduce.h>
 #include <thrust/sort.h>
+#include <thrust/transform.h>
 #include <thrust/tuple.h>
 #include <thrust/zip_function.h>
 #include <algorithm>
@@ -54,6 +57,7 @@
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -816,6 +820,20 @@ struct pair_op_functor {
         return binary_op(pair.first, pair.second);
     }
 };
+
+namespace detail {
+
+template <typename Iterator>
+struct print_value_functor {
+    Iterator begin;
+
+    __host__ __device__ auto operator()(int index) const ->
+      typename cuda::std::iterator_traits<Iterator>::value_type {
+        return begin[index];
+    }
+};
+
+}  // namespace detail
 
 // Main class for lazy operations - now supports optional mask and properties
 template <typename Iterator, typename MaskIterator, typename Properties>
@@ -2706,145 +2724,77 @@ class fusion_array {
      * @param os The output stream (defaults to std::cout)
      * @param delimiter The string to print between elements (defaults to space)
      * @return For masked arrays, returns the unmasked array; otherwise returns
-     * a reference to this array
+     * a copy of this array, preserving its shape, storage, and lazy expression
+     * @details Lazy expressions are evaluated once on the GPU with an explicit
+     * device execution policy. Values are copied to the host in bulk before
+     * formatting. Device vectors and constant values are copied directly.
      */
     auto print(std::ostream &os      = std::cout,
                const char *delimiter = " ") const {
         if constexpr (has_mask) {
-            // Apply mask first then print
             auto unmasked = _apply_mask_if_needed();
             unmasked.print(os, delimiter);
             return unmasked;
         } else {
-            if (_shape.size() <= 1) {
-                // 1D array or scalar
-                int n         = size();
-                int max_width = 1;
-                // Calculate max width first
-                for (auto it = _begin; it != _end; ++it) {
-                    std::stringstream ss;
-                    if constexpr (is_thrust_pair_v<value_type>) {
-                        // Explicitly copy device_reference to host pair
-                        using pair_type = typename cuda::std::iterator_traits<
-                          Iterator>::value_type;
-                        thrust::pair<typename pair_type::first_type,
-                                     typename pair_type::second_type>
-                          host_pair = *it;
-                        ss << "(" << host_pair.first << ", " << host_pair.second
-                           << ")";
-                    } else {
-                        ss << *it;  // Implicit copy to host for other types
-                    }
-                    max_width = std::max(max_width,
-                                         static_cast<int>(ss.str().length()));
+            using device_vector = thrust::device_vector<value_type>;
+            thrust::host_vector<value_type> host_values;
+            if constexpr (std::is_same_v<Iterator,
+                                         cuda::constant_iterator<value_type>> ||
+                          std::is_same_v<Iterator,
+                                         typename device_vector::iterator> ||
+                          std::is_same_v<
+                            Iterator,
+                            typename device_vector::const_iterator>) {
+                // Device vectors and constants have no lazy arithmetic.
+                host_values.assign(_begin, _end);
+            } else {
+                // Dereferencing a transform iterator on the host would run its
+                // functor on the CPU. Materialize the entire expression first.
+                device_vector device_values(size(), thrust::default_init);
+                // Index the expression only inside the transform operation,
+                // avoiding extra dereferences in Thrust's predicate checks.
+                auto indices = thrust::counting_iterator<int>{0};
+                thrust::transform(
+                  thrust::device,
+                  indices,
+                  indices + size(),
+                  device_values.begin(),
+                  detail::print_value_functor<Iterator>{_begin});
+                host_values = device_values;
+            }
+
+            std::vector<std::string> formatted_values;
+            formatted_values.reserve(host_values.size());
+            int max_width = 1;
+            for (const auto &element : host_values) {
+                std::stringstream ss;
+                if constexpr (is_thrust_pair_v<value_type>) {
+                    ss << "(" << element.first << ", " << element.second << ")";
+                } else {
+                    ss << element;
                 }
+                formatted_values.push_back(ss.str());
+                max_width = std::max(
+                  max_width,
+                  static_cast<int>(formatted_values.back().length()));
+            }
 
-                // Now print with padding
-                if (n > 0) {
-                    std::stringstream ss_first;
-                    if constexpr (is_thrust_pair_v<value_type>) {
-                        // Explicitly copy device_reference to host pair
-                        using pair_type = typename cuda::std::iterator_traits<
-                          Iterator>::value_type;
-                        thrust::pair<typename pair_type::first_type,
-                                     typename pair_type::second_type>
-                          host_pair = *_begin;
-                        ss_first << "(" << host_pair.first << ", "
-                                 << host_pair.second << ")";
-                    } else {
-                        ss_first << *_begin;
-                    }
-                    os << std::setw(max_width) << ss_first.str();
-
-                    for (auto it = _begin + 1; it != _end; ++it) {
-                        std::stringstream ss_rest;
-                        if constexpr (is_thrust_pair_v<value_type>) {
-                            // Explicitly copy device_reference to host pair
-                            using pair_type = typename cuda::std::
-                              iterator_traits<Iterator>::value_type;
-                            thrust::pair<typename pair_type::first_type,
-                                         typename pair_type::second_type>
-                              host_pair = *it;
-                            ss_rest << "(" << host_pair.first << ", "
-                                    << host_pair.second << ")";
-                        } else {
-                            ss_rest << *it;
-                        }
-                        os << delimiter << std::setw(max_width)
-                           << ss_rest.str();
-                    }
+            int rows = 1;
+            int cols = size();
+            if (_shape.size() > 1) {
+                rows = _shape.front();
+                cols = 1;
+                for (size_t i = 1; i < _shape.size(); ++i) {
+                    cols *= _shape.at(i);
+                }
+            }
+            for (int row_index = 0; row_index < rows; ++row_index) {
+                for (int col = 0; col < cols; ++col) {
+                    if (col > 0) { os << delimiter; }
+                    os << std::setw(max_width)
+                       << formatted_values.at((row_index * cols) + col);
                 }
                 os << '\n';
-            } else {
-                // Multi-dimensional array
-                int outer_dim  = _shape[0];
-                int inner_size = 1;
-                for (size_t i = 1; i < _shape.size(); i++) {
-                    inner_size *= _shape[i];
-                }
-
-                // Calculate the maximum width for pretty printing
-                int max_width = 1;
-                for (auto it = _begin; it != _end; ++it) {
-                    std::stringstream ss;
-                    if constexpr (is_thrust_pair_v<value_type>) {
-                        // Explicitly copy device_reference to host pair
-                        using pair_type = typename cuda::std::iterator_traits<
-                          Iterator>::value_type;
-                        thrust::pair<typename pair_type::first_type,
-                                     typename pair_type::second_type>
-                          host_pair = *it;
-                        ss << "(" << host_pair.first << ", " << host_pair.second
-                           << ")";
-                    } else {
-                        // Handle potential non-string-convertible types
-                        // gracefully? For now, assume std::to_string works or
-                        // similar stream insertion
-                        ss << *it;  // Implicit copy to host for other types
-                    }
-                    auto width = static_cast<int>(ss.str().length());
-                    max_width  = std::max(max_width, width);
-                }
-
-                for (int i = 0; i < outer_dim; i++) {
-                    // Print each "row"
-                    int row_start = i * inner_size;
-                    if (inner_size > 0) {
-                        std::stringstream ss_first;
-                        if constexpr (is_thrust_pair_v<value_type>) {
-                            // Explicitly copy device_reference to host pair
-                            using pair_type = typename cuda::std::
-                              iterator_traits<Iterator>::value_type;
-                            thrust::pair<typename pair_type::first_type,
-                                         typename pair_type::second_type>
-                              host_pair = *(_begin + row_start);
-                            ss_first << "(" << host_pair.first << ", "
-                                     << host_pair.second << ")";
-                        } else {
-                            ss_first << *(_begin + row_start);
-                        }
-                        os << std::setw(max_width) << ss_first.str();
-
-                        for (int j = 1; j < inner_size; j++) {
-                            std::stringstream ss_rest;
-                            if constexpr (is_thrust_pair_v<value_type>) {
-                                // Explicitly copy device_reference to host pair
-                                using pair_type = typename cuda::std::
-                                  iterator_traits<Iterator>::value_type;
-                                thrust::pair<typename pair_type::first_type,
-                                             typename pair_type::second_type>
-                                  host_pair = *(_begin + row_start + j);
-                                ss_rest << "(" << host_pair.first << ", "
-                                        << host_pair.second << ")";
-                            } else {
-                                ss_rest << *(_begin + row_start + j);
-                            }
-                            os << delimiter << std::setw(max_width)
-                               << ss_rest.str();
-                        }
-                    }
-                    os << '\n';
-                }
             }
 
             return *this;

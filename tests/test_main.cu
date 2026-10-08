@@ -27,6 +27,7 @@
 #include "test_integration.cu"
 #include "test_math_operations.cu"
 #include "test_multidimensional.cu"
+#include "test_print.cu"
 #include "test_reductions.cu"
 #include "test_scans.cu"
 #include "test_sorting.cu"

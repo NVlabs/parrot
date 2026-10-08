@@ -64,6 +64,24 @@ Once integrated, you can use Parrot in your CUDA C++ code:
 
 For more detailed examples, see the :doc:`examples` section.
 
+Printing Lazy Expressions
+-------------------------
+
+``.print()`` evaluates lazy expressions on the GPU and copies the resulting
+values to the host in bulk for formatting. No manual device vector or
+``thrust::copy`` is needed, including for the final normalization in softmax:
+
+.. code-block:: cpp
+
+   auto result = softmax(matrix).print();
+
+The returned array preserves the original expression, shape, and storage, so
+it can be used in subsequent operations. For masked arrays, ``.print()``
+returns the compacted, unmasked array. Device vectors and constant values
+are copied directly to the host. Printing synchronizes the GPU work needed
+to produce the output; a subsequent use of a returned lazy expression can
+evaluate it again.
+
 Requirements
 ------------
 
