@@ -47,6 +47,7 @@
 #include <cuda/functional>
 #include <cuda/iterator>
 #include <cuda/std/functional>
+#include <cuda/std/limits>
 #include <initializer_list>
 #include <iomanip>
 #include <iostream>
@@ -720,6 +721,63 @@ struct rand_functor {
             return static_cast<T>(rand_val * val);
         }  // For floating point, return a random float in [0, val)
         return static_cast<T>(rand_val * val);
+    }
+};
+
+// Index-addressable LCG: advance seed by index + 1 without a shared RNG state.
+template <typename T>
+struct drand_functor {
+    std::uint32_t seed;
+
+    __host__ __device__ auto operator()(const thrust::tuple<int, T> &t) const
+      -> T {
+        // Compose affine LCG steps by exponentiation, in O(log(index + 1)).
+        std::uint32_t steps = static_cast<std::uint32_t>(thrust::get<0>(t)) +
+                              1U;
+        std::uint32_t multiplier = 1664525U, increment = 1013904223U;
+        std::uint32_t accumulated_multiplier = 1U, accumulated_increment = 0U;
+        while (steps) {
+            if (steps & 1U) {
+                accumulated_multiplier *= multiplier;
+                accumulated_increment = accumulated_increment * multiplier +
+                                        increment;
+            }
+            increment *= multiplier + 1U;
+            multiplier *= multiplier;
+            steps >>= 1U;
+        }
+        std::uint32_t state = accumulated_multiplier * seed +
+                              accumulated_increment;
+        T value             = thrust::get<1>(t);
+        if constexpr (std::is_integral_v<T>) {
+            bool negative = false;
+            if constexpr (std::is_signed_v<T>) { negative = value < 0; }
+            std::uint64_t bound = static_cast<std::uint64_t>(value);
+            if (negative) { bound = std::uint64_t{0} - bound; }
+            // floor(state * bound / 2^32), without overflow or float rounding.
+            auto wide_state = static_cast<std::uint64_t>(state);
+            auto scaled     = wide_state * (bound >> 32U) +
+                              ((wide_state * (bound & 0xFFFFFFFFULL)) >> 32U);
+            if constexpr (std::is_signed_v<T>) {
+                if (negative) { return -static_cast<T>(scaled); }
+            }
+            return static_cast<T>(scaled);
+        } else {
+            T result = static_cast<T>(
+              (static_cast<double>(state) / 4294967296.0) * value);
+            // Rounding to the element dtype must not include the upper bound.
+            if (result == value && value != T{0}) {
+                constexpr double
+                  epsilon = cuda::std::numeric_limits<T>::epsilon() / 2.0;
+                constexpr double
+                  smallest  = cuda::std::numeric_limits<T>::denorm_min();
+                double step = std::abs(static_cast<double>(value)) * epsilon;
+                if (step < smallest) { step = smallest; }
+                result = static_cast<T>(value > T{0} ? value - step
+                                                     : value + step);
+            }
+            return result;
+        }
     }
 };
 
@@ -1514,6 +1572,39 @@ class fusion_array {
           thrust::make_transform_iterator(zip_end, RandFunc()),
           _owned_storage,
           _shape);
+    }
+
+    /**
+     * @brief Generate deterministic random values between zero and each element
+     * @param seed Initial 32-bit LCG state (defaults to 42)
+     * @return A lazy array preserving element type and shape
+     * @details For nonnegative bounds, results are in [0, value); zero stays
+     * zero. State advances as (1664525 * state + 1013904223) modulo 2^32.
+     * Element i uses the (i + 1)th state, scaled by its value; integer scaling
+     * truncates toward zero. Each index is computed independently, so repeated
+     * evaluations and GPU scheduling produce the same sequence. Masks are
+     * applied before assigning indices. Seeds wrap modulo 2^32.
+     */
+    [[nodiscard]] auto drand(std::uint32_t seed = 42U) const {
+        static_assert(std::is_arithmetic_v<value_type>,
+                      "drand requires real numeric elements");
+        if constexpr (has_mask) {
+            return apply().drand(seed);
+        } else {
+            auto indices   = thrust::make_counting_iterator(0);
+            auto zip_begin = thrust::make_zip_iterator(
+              thrust::make_tuple(indices, _begin));
+            auto zip_end = thrust::make_zip_iterator(
+              thrust::make_tuple(indices + size(), _end));
+            auto operation        = drand_functor<value_type>{seed};
+            using result_iterator = thrust::
+              transform_iterator<decltype(operation), decltype(zip_begin)>;
+            return fusion_array<result_iterator>(
+              thrust::make_transform_iterator(zip_begin, operation),
+              thrust::make_transform_iterator(zip_end, operation),
+              _owned_storage,
+              _shape);
+        }
     }
 
     /**

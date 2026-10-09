@@ -77,6 +77,10 @@ Fused Operations
 
 .. doxygenfunction:: parrot::fusion_array::rand
 
+.. _cp-fusion-array-drand:
+
+.. doxygenfunction:: parrot::fusion_array::drand
+
 .. _cp-fusion-array-sign:
 
 .. doxygenfunction:: parrot::fusion_array::sign
