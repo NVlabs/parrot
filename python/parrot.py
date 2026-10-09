@@ -167,6 +167,57 @@ def _make_rand_op(extra_entropy: int):
     return rand_op
 
 
+def _make_drand_op(seed, dtype):
+    """Create an index-addressable 32-bit LCG, shared with C++ drand()."""
+    initial_state = np.uint32(seed)
+    integer = np.dtype(dtype).kind in "biu"
+    signed = np.dtype(dtype).kind == "i"
+    epsilon = float(np.finfo(dtype).eps) / 2.0 if not integer else 0.0
+    smallest = float(np.finfo(dtype).smallest_subnormal) if not integer else 0.0
+
+    def drand_op(t):
+        # Exponentiate affine LCG steps instead of discarding i previous draws.
+        steps = np.uint32(t[0]) + np.uint32(1)
+        multiplier = np.uint32(1664525)
+        increment = np.uint32(1013904223)
+        accumulated_multiplier = np.uint32(1)
+        accumulated_increment = np.uint32(0)
+        while steps:
+            if steps & np.uint32(1):
+                accumulated_multiplier = np.uint32(accumulated_multiplier * multiplier)
+                accumulated_increment = np.uint32(
+                    accumulated_increment * multiplier + increment
+                )
+            increment = np.uint32(increment * np.uint32(multiplier + np.uint32(1)))
+            multiplier = np.uint32(multiplier * multiplier)
+            steps = np.uint32(steps >> np.uint32(1))
+        state = np.uint32(
+            accumulated_multiplier * initial_state + accumulated_increment
+        )
+        value = dtype(t[1])
+        if integer:
+            negative = signed and value < 0
+            bound = np.uint64(value)
+            if negative:
+                bound = np.uint64(0) - bound
+            # floor(state * bound / 2^32), including full-width 64-bit bounds.
+            wide_state = np.uint64(state)
+            scaled = wide_state * (bound >> np.uint64(32)) + (
+                (wide_state * (bound & np.uint64(0xFFFFFFFF))) >> np.uint64(32)
+            )
+            if negative:
+                return dtype(-np.int64(scaled))
+            return dtype(scaled)
+        result = dtype((np.float64(state) / 4294967296.0) * value)
+        # Keep float rounding from including the upper bound, even subnormals.
+        if result == value and value != 0:
+            step = max(abs(np.float64(value)) * epsilon, smallest)
+            return dtype(value - step if value > 0 else value + step)
+        return result
+
+    return drand_op
+
+
 class ParrotArray:
     """A fluent API for cuda.compute operations."""
 
@@ -1616,6 +1667,43 @@ class ParrotArray:
         # Return new lazy ParrotArray
         result = ParrotArray(iterator=rand_iter, dtype=self.dtype)
         result.length = self.length
+        return result
+
+    def drand(self, seed=42):
+        """Generate deterministic random values, preserving dtype and shape.
+
+        Each nonnegative input value bounds its result in [0, value); zero
+        stays zero. Integer results truncate toward zero. The 32-bit LCG is
+        state = (1664525 * state + 1013904223) modulo 2**32; element i uses
+        state i + 1. The default seed is 42; integer seeds wrap modulo 2**32.
+
+        Generation is lazy, with logarithmic skip-ahead per index. Repeated
+        evaluation and GPU scheduling do not change the sequence. Masks are
+        applied before assigning indices. Matches C++ drand() for equal inputs.
+        """
+        seed = operator.index(seed) & 0xFFFFFFFF
+        if np.dtype(self.dtype).kind not in "biuf":
+            raise TypeError("drand requires real numeric elements")
+        if self.has_mask:
+            return self._apply_mask_if_needed().drand(seed)
+        if self.length == 0:
+            result = self._empty_result()
+            result._shape = self._shape
+            return result
+
+        # Preserve the iterator's actual output type in the zip descriptor.
+        # Lazy arithmetic can promote int32/float32 to int64/float64; the
+        # generator casts each bound back to the declared array dtype.
+        values = self._get_composed_iterator()
+        indices = iterators.CountingIterator(np.uint32(0))
+        zipped = iterators.ZipIterator(indices, values)
+        operation = _make_drand_op(seed, self.dtype)
+        result = ParrotArray(
+            iterator=iterators.TransformIterator(zipped, operation),
+            dtype=self.dtype,
+            length=self.length,
+        )
+        result._shape = self._shape
         return result
 
     def neq(self, arg):

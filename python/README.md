@@ -71,6 +71,25 @@ NumPy is temporarily limited to versions below 2.5 because `numba-cuda-mlir` 0.5
 | `.even()`   | Check if even (1/0)   |
 | `.odd()`    | Check if odd (1/0)    |
 
+### Deterministic random values
+
+`.drand()` defaults to seed `42`; `.drand(seed=1234)` selects a reproducible
+sequence. Each nonnegative input element bounds its result in `[0, value)`;
+zero stays zero. Integer results truncate toward zero. Dtype and shape are
+preserved, and generation stays lazy until a consuming operation runs.
+
+```python
+bounds = parrot.array([100, 100, 100, 100])
+print(bounds.drand().to_host())           # [25, 8, 57, 22]
+print(bounds.drand(seed=1234).to_host())  # [71, 20, 74, 34]
+```
+
+The 32-bit LCG advances as `state = 1664525 * state + 1013904223` modulo `2**32`;
+element `i` uses state `i + 1`. Integer seeds wrap modulo `2**32`. Logarithmic
+skip-ahead computes each index independently, so repeat evaluation and GPU
+scheduling do not change results. Equal inputs and seeds match C++ `.drand()`.
+Filtered inputs are compacted before assigning indices.
+
 ### Binary Transforms (Lazy)
 
 | Method           | Description                 |
