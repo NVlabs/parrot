@@ -19,10 +19,18 @@
 #include "parrot.hpp"
 
 int main() {
-    int N  = 1000000;
+    // todo: average accross M samples
+    int M = 30000;
+
+    // for M samples
+    int N  = 10000;
     auto x = parrot::scalar(1.0).repeat(N).rand();
     auto y = parrot::scalar(1.0).repeat(N).rand();
     auto i = x.sq().add(y.sq()).lte(1);
-    std::setprecision(3);
     i.sum().div(N).times(4).print();  // 3.142
+
+    // average over the M samples
+
+    std::setprecision(3);
+    // print 
 }

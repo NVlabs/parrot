@@ -18,7 +18,7 @@
 #include "parrot.hpp"
 
 int main() {
+    auto map = parrot::array({3, 1, 0, 5});
     auto source  = parrot::array({10, 20, 30, 40, 50, 60});
-    auto indices = parrot::array({3, 1, 0, 5});
-    source.gather(indices).sum().print();  // 130
+    source.gather(map).sum().print();  // 130
 }
