@@ -748,7 +748,7 @@ struct drand_functor {
         }
         std::uint32_t state = accumulated_multiplier * seed +
                               accumulated_increment;
-        T value             = thrust::get<1>(t);
+        T value = thrust::get<1>(t);
         if constexpr (std::is_integral_v<T>) {
             bool negative = false;
             if constexpr (std::is_signed_v<T>) { negative = value < 0; }
@@ -757,7 +757,7 @@ struct drand_functor {
             // floor(state * bound / 2^32), without overflow or float rounding.
             auto wide_state = static_cast<std::uint64_t>(state);
             auto scaled     = wide_state * (bound >> 32U) +
-                              ((wide_state * (bound & 0xFFFFFFFFULL)) >> 32U);
+                          ((wide_state * (bound & 0xFFFFFFFFULL)) >> 32U);
             if constexpr (std::is_signed_v<T>) {
                 if (negative) { return -static_cast<T>(scaled); }
             }
