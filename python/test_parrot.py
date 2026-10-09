@@ -1,7 +1,9 @@
-import numpy as np
-import pytest
+from unittest.mock import patch
 
+import cupy as cp
+import numpy as np
 import parrot
+import pytest
 
 
 class TestParrot:
@@ -974,6 +976,114 @@ class TestMathOperations:
         """Test even check."""
         arr = parrot.array([1, 2, 3, 4, 5])
         assert arr.even().sum() == 2  # 2, 4 are even
+
+
+class TestDrand:
+    def test_known_sequence_and_repeated_evaluation(self):
+        bounds = parrot.constant(4294967296.0, 8, dtype=np.float64)
+        expected = [
+            1083814273,
+            378494188,
+            2479403867,
+            955863294,
+            1613448261,
+            110225632,
+            1921058495,
+            508781842,
+        ]
+        draws = bounds.drand()
+        assert draws.to_host() == expected
+        assert draws.to_host() == expected
+        assert bounds.drand(seed=42).to_host() == expected
+        assert bounds.drand(seed=1234).to_host() != expected
+
+    @pytest.mark.parametrize("seed", [0, 1, 42, 1234, 0xFFFFFFFF])
+    def test_skip_ahead_matches_sequential_lcg(self, seed):
+        expected = []
+        state = seed
+        for _ in range(4097):
+            state = (1664525 * state + 1013904223) & 0xFFFFFFFF
+            expected.append(state * 100 >> 32)
+        draws = parrot.constant(100, 4097).drand(seed)
+        assert draws.to_host() == expected
+        assert draws.rev().take(3).to_host() == expected[-3:][::-1]
+
+    def test_high_index_without_materializing_prefix(self):
+        with patch.object(cp, "empty", side_effect=AssertionError("must stay lazy")):
+            draws = parrot.range(1000000000).times(0).add(100).drand(1234)
+        assert draws.gather(parrot.array([999999999])).to_host() == [75]
+
+    def test_default_seed_and_integer_bounds(self):
+        bounds = parrot.array([0, 20, 30, 40])
+        assert bounds.drand().to_host() == [0, 1, 17, 8]
+        assert bounds.to_host() == [0, 20, 30, 40]
+        assert parrot.array([1, 1, 1, 1]).drand().to_host() == [0, 0, 0, 0]
+
+    @pytest.mark.parametrize(
+        "dtype", [np.int32, np.int64, np.uint32, np.uint64, np.float32, np.float64]
+    )
+    def test_dtype_shape_and_fused_transforms(self, dtype):
+        bounds = parrot.range(4).astype(dtype).times(0).add(100).reshape((2, 2))
+        draws = bounds.drand(1234)
+        assert draws.dtype == dtype
+        assert draws.shape == (2, 2)
+        values = draws.collect().get()
+        assert values.dtype == dtype
+        assert values.shape == (2, 2)
+        states = [3067928073, 889114580, 3219257635, 1486326822]
+        expected = np.array(
+            [state * 100 / 4294967296.0 for state in states], dtype=dtype
+        ).reshape(2, 2)
+        np.testing.assert_array_equal(values, expected)
+        assert draws._clone().add(1).sum() == pytest.approx((values + 1).sum())
+        assert bounds.collect().get().tolist() == [[100, 100], [100, 100]]
+
+    def test_masks_compact_before_assigning_indices(self):
+        bounds = parrot.array([100, 100, 100, 100])
+        mask = parrot.array([1, 0, 1, 0])
+        draws = bounds.keep(mask).drand()
+        assert draws.to_host() == [25, 8]
+        assert draws.shape == (2,)
+
+    @pytest.mark.parametrize("dtype", [np.int32, np.float32, np.float64])
+    def test_empty(self, dtype):
+        draws = parrot.range(0, dtype=dtype).drand()
+        assert draws.to_host() == []
+        assert draws.dtype == dtype
+        assert draws.shape == (0,)
+
+    def test_full_width_integer_bounds(self):
+        bound = (1 << 64) - 1
+        assert parrot.array([bound] * 4, dtype=np.uint64).drand().to_host() == [
+            4654946857473015807,
+            1625620159186075647,
+            10648958522340933631,
+            4105401587176833023,
+        ]
+        assert parrot.array([-(1 << 63)] * 2, dtype=np.int64).drand().to_host() == [
+            -2327473428736507904,
+            -812810079593037824,
+        ]
+
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_floating_point_bounds_remain_exclusive(self, dtype):
+        info = np.finfo(dtype)
+        for value in (dtype(1), info.max, info.tiny, info.smallest_subnormal):
+            expected = dtype(float(0xFFFFFFFF) / 4294967296.0 * float(value))
+            if expected == value:
+                expected = np.nextafter(value, dtype(0))
+            # This seed's first state is UINT32_MAX.
+            actual = parrot.array([value], dtype=dtype).drand(653637408).to_host()[0]
+            assert actual == expected
+            assert 0 <= actual < value
+
+    def test_seed_normalization_and_validation(self):
+        bounds = parrot.constant(100, 8)
+        assert bounds.drand(-1).to_host() == bounds.drand(0xFFFFFFFF).to_host()
+        assert bounds.drand(42 + (1 << 32)).to_host() == bounds.drand().to_host()
+        assert bounds.drand(np.int64(42)).to_host() == bounds.drand().to_host()
+        with pytest.raises(TypeError):
+            bounds.drand(1.5)
 
 
 class TestArbitraryTransformation:
