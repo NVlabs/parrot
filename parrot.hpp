@@ -1015,10 +1015,12 @@ class fusion_array {
     template <typename ResultProperties, typename Value>
     [[nodiscard]] auto _constant_like(Value value) const {
         int const n       = size();
-        auto begin        = cuda::make_constant_iterator(value);
+        auto result_begin = cuda::make_constant_iterator(value);
         auto result_shape = has_mask ? std::vector<int>{n} : _shape;
-        return fusion_array<decltype(begin), no_mask_t, ResultProperties>(
-          begin, begin + n, nullptr, result_shape);
+        return fusion_array<decltype(result_begin),
+                            no_mask_t,
+                            ResultProperties>(
+          result_begin, result_begin + n, nullptr, result_shape);
     }
 
     [[nodiscard]] auto _constant_truth_scan() const {
@@ -1033,12 +1035,14 @@ class fusion_array {
             ? order::constant
             : order::unknown,
           Properties::nonempty>;
-        auto begin = thrust::make_transform_iterator(
+        auto result_begin = thrust::make_transform_iterator(
           thrust::make_counting_iterator(0),
           detail::constant_truth_scan_functor<value>{first});
         auto result_shape = has_mask ? std::vector<int>{n} : _shape;
-        return fusion_array<decltype(begin), no_mask_t, result_properties>(
-          begin, begin + n, nullptr, result_shape);
+        return fusion_array<decltype(result_begin),
+                            no_mask_t,
+                            result_properties>(
+          result_begin, result_begin + n, nullptr, result_shape);
     }
 
     // Helper to get unmasked data as a fusion_array
@@ -2377,9 +2381,9 @@ class fusion_array {
     [[nodiscard]] auto where() const {
         // Shift zero-based positions lazily: even size() == INT_MAX has a
         // representable end iterator, without needing the value size() + 1.
-        auto begin = thrust::make_transform_iterator(
+        auto index_begin = thrust::make_transform_iterator(
           thrust::make_counting_iterator(0), add_functor<int>(1));
-        using index_iterator = decltype(begin);
+        using index_iterator = decltype(index_begin);
         if constexpr (std::is_integral_v<value_type> &&
                       (Properties::domain == domain::zero ||
                        is_nonzero_v<Properties>)) {
@@ -2389,7 +2393,7 @@ class fusion_array {
                                                    Properties::nonempty>;
             int const n = Properties::domain == domain::zero ? 0 : size();
             return fusion_array<index_iterator, no_mask_t, result_properties>(
-              begin, begin + n);
+              index_begin, index_begin + n);
         } else if constexpr (has_mask) {
             return apply().where();
         } else {
@@ -2398,8 +2402,8 @@ class fusion_array {
                                                 order::strictly_ascending>;
             auto indices           = fusion_array<index_iterator,
                                                   no_mask_t,
-                                                  index_properties>(begin,
-                                                          begin + size());
+                                                  index_properties>(index_begin,
+                                                          index_begin + size());
             return indices.keep(*this);
         }
     }
@@ -2758,10 +2762,11 @@ class fusion_array {
                              is_constant_v<Properties>) {
             int const n = size() == 0 ? 0 : 1;
             if constexpr (has_mask) {
-                auto begin = cuda::make_constant_iterator(n == 0 ? value_type(0)
-                                                                 : front());
-                return fusion_array<decltype(begin), no_mask_t, Properties>(
-                  begin, begin + n);
+                auto unique_begin = cuda::make_constant_iterator(
+                  n == 0 ? value_type(0) : front());
+                return fusion_array<decltype(unique_begin),
+                                    no_mask_t,
+                                    Properties>(unique_begin, unique_begin + n);
             } else {
                 return fusion_array<Iterator, no_mask_t, Properties>(
                   _begin, _begin + n, _owned_storage);
@@ -2834,9 +2839,10 @@ class fusion_array {
 
         if constexpr (std::is_integral_v<value_type> &&
                       is_constant_v<Properties>) {
-            auto begin = cuda::make_constant_iterator(
+            auto run_begin = cuda::make_constant_iterator(
               pair_type(n == 0 ? value_type(0) : front(), n));
-            return fusion_array<decltype(begin)>(begin, begin + int(n != 0));
+            return fusion_array<decltype(run_begin)>(run_begin,
+                                                     run_begin + int(n != 0));
         } else if constexpr (has_mask) {
             return apply().rle();
         } else if constexpr (std::is_integral_v<value_type> &&
@@ -2850,13 +2856,13 @@ class fusion_array {
             // instead, then derive run lengths from their positions.
             auto starts = std::make_shared<thrust::device_vector<int>>(
               n, thrust::default_init);
-            auto indices = thrust::make_counting_iterator(0);
-            auto end     = thrust::copy_if(
+            auto indices    = thrust::make_counting_iterator(0);
+            auto starts_end = thrust::copy_if(
               indices,
               indices + n,
               starts->begin(),
               detail::run_start_predicate<Iterator>{_begin});
-            int const runs = cuda::std::distance(starts->begin(), end);
+            int const runs = cuda::std::distance(starts->begin(), starts_end);
             auto result    = std::make_shared<thrust::device_vector<pair_type>>(
               runs, thrust::default_init);
             thrust::transform(
