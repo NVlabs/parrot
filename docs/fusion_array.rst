@@ -98,9 +98,10 @@ Fused Operations
 
 .. _cp-fusion-array-map2:
 
-.. doxygenfunction:: parrot::fusion_array::map2(const fusion_array<OtherIterator, OtherMaskIterator, OtherProperties> &value, BinaryFunctor binary_op) const
-
-.. doxygenfunction:: parrot::fusion_array::map2(const T &value, BinaryFunctor binary_op) const
+.. doxygenclass:: parrot::fusion_array
+   :members: map2
+   :members-only:
+   :no-link:
 
 .. _cp-fusion-array-add:
 
