@@ -341,6 +341,10 @@ Reductions
 
 .. doxygenfunction:: parrot::fusion_array::minmax
 
+Naturally ordered integral arrays read their endpoints instead of reducing
+the full array. Masked arrays use the first and last selected elements.
+Empty inputs throw ``std::invalid_argument``.
+
 .. _cp-fusion-array-prod:
 
 .. doxygenfunction:: parrot::fusion_array::prod
@@ -352,6 +356,7 @@ Reductions
 For ``bool`` storage, ``sum`` returns integer counts of true values, including
 row-wise and column-wise reductions. Predicate arrays retain their existing
 integer result type. Only selected elements contribute to masked sums.
+Global sums of known integral zero domains return zero directly.
 
 Scans
 ~~~~~
@@ -367,6 +372,12 @@ Scans
 .. _cp-fusion-array-anys:
 
 .. doxygenfunction:: parrot::fusion_array::anys
+
+Inclusive logical scans preserve the input's first element. For example,
+``{7, 0, 2}.anys()`` produces ``{7, 1, 1}``. Boolean domain and global ordering
+are guaranteed only when the input values are known to be boolean. Integral
+constant and nonzero domains can produce lazy scans while retaining this
+first-element behavior.
 
 .. _cp-fusion-array-maxs:
 
@@ -386,6 +397,8 @@ Scans
 
 For ``bool`` storage, ``sums`` returns integer prefix counts rather than
 boolean running totals. Masked inputs are compacted before scanning.
+Global scans of known integral zero domains return lazy zeros and preserve
+the logical shape.
 
 Permutations
 ~~~~~~~~~~~~
@@ -397,6 +410,10 @@ Permutations
 .. _cp-fusion-array-sort-by:
 
 .. doxygenfunction:: parrot::fusion_array::sort_by
+
+Descending integral arrays can sort by returning a reversed view. Recognized
+natural comparators in ``sort_by`` also reuse a compatible ordered view.
+These views retain ownership of the source storage.
 
 .. _cp-fusion-array-sort-by-key:
 
@@ -677,3 +694,28 @@ Statistical Functions
    false winning a tie. Other domains use sorting, run-length encoding, and
    finding the maximum by count. Empty inputs, including masks selecting no
    elements, throw ``std::invalid_argument``.
+
+Additional property specializations
+----------------------------------
+
+For integral values, constant arrays reduce ``uniq`` and ``distinct`` to at
+most one value, ``rle`` to one run, and ``stats::mode`` to an endpoint read.
+Strictly ordered arrays already have unique values: uniqueness operations
+reuse the view, RLE lazily emits ``(value, 1)`` pairs, and mode selects the
+smallest endpoint. Empty results and the descending order of distinct values
+are preserved.
+
+Known zero and nonzero integral domains simplify global ``any``, ``all``, and
+the 1-based indices returned by ``where``. Empty logical inputs retain the
+usual false ``any`` and true ``all`` identities. Truth reductions test values
+before converting their result, so fractional and wide nonzero values are
+handled correctly.
+
+``abs`` is an identity for nonnegative integral values. Known positive,
+negative, and zero signs produce lazy integer constants. Integral sign maps
+weaken strict ordering; negation reverses ordering only for nonnegative
+signed integral inputs, where negating the signed minimum is impossible.
+
+Floating constant uniqueness retains its generic path. Floating RLE detects
+run starts by comparing adjacent values, preserving separate NaN runs and
+the first representative of equal values, including signed zero.
