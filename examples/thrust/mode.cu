@@ -18,7 +18,9 @@
 #include "parrot.hpp"
 
 int main() {
-    auto data = parrot::scalar(9).repeat(30).rand().print();
+    int N = 30;
+    int M = 10;
+    auto data = parrot::scalar(M-1).repeat(N).rand().print();
     data.sort().print().rle().print().max_by_key(parrot::snd()).print();
     // Output:
     // 2 5 6 2 0 0 4 2 3 8 5 0 1 4 4 7 5 8 3 3 8 2 6 0 7 5 6 0 2 3

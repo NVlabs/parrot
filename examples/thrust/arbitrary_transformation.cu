@@ -22,4 +22,5 @@ int main() {
     auto B = parrot::array({6, 7, 2, 1, 8});
     auto C = parrot::array({2, 5, 7, 4, 3});
     (B * C + A).print();  // 15 39 14 12 26
+    (B * C + A).print();  // 15 39 14 12 26
 }

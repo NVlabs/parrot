@@ -17,6 +17,9 @@
 
 #include "parrot.hpp"
 
+// todo: the thrust example shows a custom struct
+// is this possible erganically in parrot?
+
 int main() {
     auto ll = parrot::matrix(1.0, {2, 10}).rand();
     auto ur = parrot::matrix(1.0, {2, 10}).rand().add(1);
