@@ -24,6 +24,7 @@
 #include "test_advanced_operations.cu"
 #include "test_array_operations.cu"
 #include "test_basic_operations.cu"
+#include "test_boolean.cu"
 #include "test_integration.cu"
 #include "test_math_operations.cu"
 #include "test_multidimensional.cu"

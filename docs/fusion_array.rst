@@ -293,6 +293,11 @@ Compactions
 
 .. doxygenfunction:: parrot::fusion_array::distinct
 
+Boolean domains produce at most two distinct values without sorting an
+intermediate array. A known descending order is preserved; otherwise the
+result is ascending. This applies to both ``bool`` storage and integer
+predicate results carrying ``domain::boolean``.
+
 Materializing Operations
 ------------------------
 
@@ -323,6 +328,9 @@ Reductions
    The max_by_key method finds the maximum element based on a key extractor function.
    It's especially useful when working with pairs or complex objects where you
    want to find the maximum based on a specific field or computation.
+   Ties return the first element, and empty inputs produce an empty array.
+   A key function returning ``bool`` uses a search for the first true key,
+   falling back to the first element when all keys are false.
 
 .. _cp-fusion-array-minr:
 
@@ -339,6 +347,10 @@ Reductions
 .. _cp-fusion-array-sum:
 
 .. doxygenfunction:: parrot::fusion_array::sum
+
+For ``bool`` storage, ``sum`` returns integer counts of true values, including
+row-wise and column-wise reductions. Predicate arrays retain their existing
+integer result type. Only selected elements contribute to masked sums.
 
 Scans
 ~~~~~
@@ -371,6 +383,9 @@ Scans
 
 .. doxygenfunction:: parrot::fusion_array::sums
 
+For ``bool`` storage, ``sums`` returns integer prefix counts rather than
+boolean running totals. Masked inputs are compacted before scanning.
+
 Permutations
 ~~~~~~~~~~~~
 
@@ -386,12 +401,22 @@ Permutations
 
 .. doxygenfunction:: parrot::fusion_array::sort_by_key
 
+Boolean values use two-way partitioning in ``sort_by``. A key function
+returning ``bool`` also uses partitioning in ``sort_by_key``, with false keys
+first. Ordering within each key group is unspecified. Projected sorting does
+not establish a natural value order.
+
 Compactions
 ~~~~~~~~~~~
 
 .. _cp-fusion-array-rle:
 
 .. doxygenfunction:: parrot::fusion_array::rle
+
+Naturally ascending or descending boolean domains produce at most two
+``(value, count)`` pairs. Unordered inputs preserve consecutive runs:
+``{true, false, true}`` produces three runs. Masked inputs are compacted before
+encoding, so only selected elements contribute to runs.
 
 Copying
 ~~~~~~~
@@ -646,6 +671,8 @@ Statistical Functions
 
 .. note::
    This function computes the statistical mode (most frequently occurring value) of an array.
-   It returns the value that appears most frequently in the array. If all values appear with 
-   equal frequency, it returns the smallest value after sorting. The implementation uses 
-   efficient operations: sorting, run-length encoding, and finding the maximum by count.
+   It returns the value that appears most frequently in the array, choosing
+   the smallest value on ties. Boolean domains use a population count, with
+   false winning a tie. Other domains use sorting, run-length encoding, and
+   finding the maximum by count. Empty inputs, including masks selecting no
+   elements, throw ``std::invalid_argument``.
