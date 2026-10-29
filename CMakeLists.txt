@@ -462,6 +462,13 @@ set_target_properties(test_properties PROPERTIES
 target_compile_options(test_properties PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
 target_link_libraries(test_properties PRIVATE doctest::doctest)
 
+add_executable(test_boolean tests/test_boolean.cu tests/test_common.hpp)
+set_target_properties(test_boolean PROPERTIES
+    CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
+    CUDA_SEPARABLE_COMPILATION ON)
+target_compile_options(test_boolean PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
+target_link_libraries(test_boolean PRIVATE doctest::doctest)
+
 # Register individual tests with CTest
 add_test(NAME BasicOperationsTests COMMAND test_basic)
 add_test(NAME SortingTests COMMAND test_sorting)
@@ -475,6 +482,7 @@ add_test(NAME IntegrationTests COMMAND test_integration)
 add_test(NAME Top10Tests COMMAND test_top10)
 add_test(NAME FunTests COMMAND test_fun)
 add_test(NAME PropertiesTests COMMAND test_properties)
+add_test(NAME BooleanTests COMMAND test_boolean)
 endif() # PARROT_BUILD_TESTS
 
 if(PARROT_BUILD_EXAMPLES)
