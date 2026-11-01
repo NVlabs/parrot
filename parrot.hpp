@@ -1288,50 +1288,56 @@ class fusion_array {
       const fusion_array<OtherIterator, OtherMaskIterator, OtherProperties>
         &value,
       BinaryFunctor binary_op) const {
-        if (size() != value.size() and rank() != 0 and value.rank() != 0) {
-            throw std::invalid_argument(
-              "Incompatible shapes for element-wise operations: " +
-              std::to_string(size()) + " " + std::to_string(value.size()));
+        if constexpr (has_mask) {
+            return apply().template map2<ResultProperties>(value, binary_op);
+        } else if constexpr (!std::is_same_v<OtherMaskIterator, no_mask_t>) {
+            return map2<ResultProperties>(value.apply(), binary_op);
+        } else {
+            if (size() != value.size() and rank() != 0 and value.rank() != 0) {
+                throw std::invalid_argument(
+                  "Incompatible shapes for element-wise operations: " +
+                  std::to_string(size()) + " " + std::to_string(value.size()));
+            }
+
+            auto const n = std::max(size(), value.size());
+            // Prioritize higher-dimensional arrays to preserve shape
+            // information. If ranks are equal, prefer the larger array by size
+            auto const result_shape = (rank() < value.rank()) ||
+                                          (rank() == value.rank() &&
+                                           size() < value.size())
+                                        ? value.shape()
+                                        : _shape;
+
+            auto zip_begin = thrust::make_zip_iterator(
+              thrust::make_tuple(_begin, value.begin()));
+            auto zip_end = thrust::make_zip_iterator(
+              thrust::make_tuple(_begin + n, value.begin() + n));
+
+            // Create an adapter that converts from tuple-based to two-argument
+            // calling convention
+            auto adapter = binary_op_adapter<BinaryFunctor>(binary_op);
+
+            using result_iterator = thrust::
+              transform_iterator<decltype(adapter), decltype(zip_begin)>;
+            using result_properties = std::conditional_t<
+              std::is_void_v<ResultProperties>,
+              default_properties_t<result_iterator>,
+              ResultProperties>;
+
+            // Create composite storage to keep both operands alive
+            std::shared_ptr<void> composite_storage;
+            if (_owned_storage || value.storage()) {
+                composite_storage = std::make_shared<
+                  std::pair<std::shared_ptr<void>, std::shared_ptr<void>>>(
+                  _owned_storage, value.storage());
+            }
+
+            return fusion_array<result_iterator, no_mask_t, result_properties>(
+              thrust::make_transform_iterator(zip_begin, adapter),
+              thrust::make_transform_iterator(zip_end, adapter),
+              composite_storage,
+              result_shape);
         }
-
-        auto const n = std::max(size(), value.size());
-        // Prioritize higher-dimensional arrays to preserve shape information
-        // If ranks are equal, prefer the larger array by size
-        auto const result_shape = (rank() < value.rank()) ||
-                                      (rank() == value.rank() &&
-                                       size() < value.size())
-                                    ? value.shape()
-                                    : _shape;
-
-        auto zip_begin = thrust::make_zip_iterator(
-          thrust::make_tuple(_begin, value.begin()));
-        auto zip_end = thrust::make_zip_iterator(
-          thrust::make_tuple(_begin + n, value.begin() + n));
-
-        // Create an adapter that converts from tuple-based to two-argument
-        // calling convention
-        auto adapter = binary_op_adapter<BinaryFunctor>(binary_op);
-
-        using result_iterator   = thrust::transform_iterator<decltype(adapter),
-                                                             decltype(zip_begin)>;
-        using result_properties = std::conditional_t<
-          std::is_void_v<ResultProperties>,
-          default_properties_t<result_iterator>,
-          ResultProperties>;
-
-        // Create composite storage to keep both operands alive
-        std::shared_ptr<void> composite_storage;
-        if (_owned_storage || value.storage()) {
-            composite_storage = std::make_shared<
-              std::pair<std::shared_ptr<void>, std::shared_ptr<void>>>(
-              _owned_storage, value.storage());
-        }
-
-        return fusion_array<result_iterator, no_mask_t, result_properties>(
-          thrust::make_transform_iterator(zip_begin, adapter),
-          thrust::make_transform_iterator(zip_end, adapter),
-          composite_storage,
-          result_shape);
     }
 
     // Map operation with a scalar value
@@ -1370,18 +1376,24 @@ class fusion_array {
      */
     template <typename ResultProperties = void, typename UnaryFunctor>
     auto map(UnaryFunctor op) const {
-        using TransformIterator = thrust::transform_iterator<UnaryFunctor,
-                                                             Iterator>;
-        using result_properties = std::conditional_t<
-          std::is_void_v<ResultProperties>,
-          default_properties_t<TransformIterator>,
-          ResultProperties>;
+        if constexpr (has_mask) {
+            return apply().template map<ResultProperties>(op);
+        } else {
+            using TransformIterator = thrust::transform_iterator<UnaryFunctor,
+                                                                 Iterator>;
+            using result_properties = std::conditional_t<
+              std::is_void_v<ResultProperties>,
+              default_properties_t<TransformIterator>,
+              ResultProperties>;
 
-        return fusion_array<TransformIterator, no_mask_t, result_properties>(
-          thrust::make_transform_iterator(_begin, op),
-          thrust::make_transform_iterator(_end, op),
-          _owned_storage,  // Pass ownership to derived array
-          _shape);
+            return fusion_array<TransformIterator,
+                                no_mask_t,
+                                result_properties>(
+              thrust::make_transform_iterator(_begin, op),
+              thrust::make_transform_iterator(_end, op),
+              _owned_storage,  // Pass ownership to derived array
+              _shape);
+        }
     }
 
     /**
@@ -1550,29 +1562,33 @@ class fusion_array {
      */
     template <typename ResultProperties = void, typename BinaryOp>
     auto map_adj(BinaryOp op) const {
-        auto zip_begin = thrust::make_zip_iterator(
-          thrust::make_tuple(_begin, _begin + 1));
-        auto transform_begin = thrust::make_transform_iterator(
-          zip_begin, thrust::make_zip_function(op));
+        if constexpr (has_mask) {
+            return apply().template map_adj<ResultProperties>(op);
+        } else {
+            auto zip_begin = thrust::make_zip_iterator(
+              thrust::make_tuple(_begin, _begin + 1));
+            auto transform_begin = thrust::make_transform_iterator(
+              zip_begin, thrust::make_zip_function(op));
 
-        using result_properties = std::conditional_t<
-          std::is_void_v<ResultProperties>,
-          default_properties_t<decltype(transform_begin)>,
-          ResultProperties>;
-        using return_type = fusion_array<decltype(transform_begin),
-                                         no_mask_t,
-                                         result_properties>;
+            using result_properties = std::conditional_t<
+              std::is_void_v<ResultProperties>,
+              default_properties_t<decltype(transform_begin)>,
+              ResultProperties>;
+            using return_type = fusion_array<decltype(transform_begin),
+                                             no_mask_t,
+                                             result_properties>;
 
-        // If we don't have at least 2 elements, return empty array type
-        if (size() < 2) {
+            // If we don't have at least 2 elements, return empty array type
+            if (size() < 2) {
+                return return_type(
+                  transform_begin, transform_begin, _owned_storage);
+            }
+
+            // Return a new array with one fewer element (since we're processing
+            // pairs)
             return return_type(
-              transform_begin, transform_begin, _owned_storage);
+              transform_begin, transform_begin + (size() - 1), _owned_storage);
         }
-
-        // Return a new array with one fewer element (since we're processing
-        // pairs)
-        return return_type(
-          transform_begin, transform_begin + (size() - 1), _owned_storage);
     }
 
     /**
@@ -1730,24 +1746,28 @@ class fusion_array {
      * @return A new fusion_array with random values
      */
     [[nodiscard]] auto rand() const {
-        // Create a counting iterator for indices
-        auto indices = thrust::make_counting_iterator(0);
+        if constexpr (has_mask) {
+            return apply().rand();
+        } else {
+            // Create a counting iterator for indices
+            auto indices = thrust::make_counting_iterator(0);
 
-        // Create a zip iterator combining indices with the array values
-        auto zip_begin = thrust::make_zip_iterator(
-          thrust::make_tuple(indices, _begin));
-        auto zip_end = thrust::make_zip_iterator(
-          thrust::make_tuple(indices + size(), _end));
+            // Create a zip iterator combining indices with the array values
+            auto zip_begin = thrust::make_zip_iterator(
+              thrust::make_tuple(indices, _begin));
+            auto zip_end = thrust::make_zip_iterator(
+              thrust::make_tuple(indices + size(), _end));
 
-        // Create a transform iterator that applies the random functor
-        using RandFunc = rand_functor<value_type>;
+            // Create a transform iterator that applies the random functor
+            using RandFunc = rand_functor<value_type>;
 
-        return fusion_array<
-          thrust::transform_iterator<RandFunc, decltype(zip_begin)>>(
-          thrust::make_transform_iterator(zip_begin, RandFunc()),
-          thrust::make_transform_iterator(zip_end, RandFunc()),
-          _owned_storage,
-          _shape);
+            return fusion_array<
+              thrust::transform_iterator<RandFunc, decltype(zip_begin)>>(
+              thrust::make_transform_iterator(zip_begin, RandFunc()),
+              thrust::make_transform_iterator(zip_end, RandFunc()),
+              _owned_storage,
+              _shape);
+        }
     }
 
     /**
