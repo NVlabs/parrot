@@ -175,6 +175,32 @@ TEST_CASE("ParrotTest - FilterPredicateTest") {
     CHECK(check_match(greater_than_five, expected_greater));
 }
 
+// Element-wise operations on keep() and filter() results see only the kept
+// elements
+TEST_CASE("ParrotTest - MaskedElementwiseTest") {
+    auto arr  = parrot::array({1, 2, 3, 4});
+    auto mask = parrot::array({1, 0, 1, 0});
+    auto kept = arr.keep(mask);  // {1, 3}
+
+    CHECK(check_match(kept.sq(), parrot::array({1, 9})));
+    CHECK(check_match(kept.dble(), parrot::array({2, 6})));
+    CHECK_EQ(kept.sq().sum().value(), 10);
+    CHECK(check_match(kept.deltas(), parrot::array({2})));
+    CHECK(check_match(kept.add(kept), parrot::array({2, 6})));
+    CHECK(
+      check_match(kept.add(parrot::array({10, 20})), parrot::array({11, 23})));
+    CHECK(
+      check_match(parrot::array({10, 20}).add(kept), parrot::array({11, 23})));
+
+    auto evens = arr.filter(
+      [=] __host__ __device__(int x) { return x % 2 == 0; });
+    CHECK(check_match(evens.sq(), parrot::array({4, 16})));
+
+    // rand(0) is always 0, so only the kept zeros may reach rand()
+    auto zeros = parrot::array({0, 1000000, 0, 1000000}).keep(mask);
+    CHECK(check_match(zeros.rand(), parrot::array({0, 0})));
+}
+
 // Test rev function
 TEST_CASE("ParrotTest - RevTest") {
     auto arr      = parrot::array({1, 2, 3, 4, 5});
