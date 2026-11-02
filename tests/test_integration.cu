@@ -498,10 +498,9 @@ TEST_CASE("ParrotTest - CompositeStorage_KeepDropPattern") {
     auto host_result = result.to_host();
     CHECK_EQ(host_result.size(), 3);
 
-    // [3, 4, 5] / [1, 3, 5] = [3, 2, 1] (based on actual output: 3 2 1)
+    // [3, 4, 5] / [1, 3, 5] = [3, 1, 1] (integer division truncates)
     CHECK_EQ(host_result[0], 3);
-    CHECK_EQ(host_result[1],
-             2);  // 4/3 = 1.33... -> 2 (integer division rounds)
+    CHECK_EQ(host_result[1], 1);  // 4/3 truncates to 1
     CHECK_EQ(host_result[2], 1);
 }
 
