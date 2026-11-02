@@ -77,6 +77,10 @@ Fused Operations
 
 .. doxygenfunction:: parrot::fusion_array::rand
 
+.. _cp-fusion-array-drand:
+
+.. doxygenfunction:: parrot::fusion_array::drand
+
 .. _cp-fusion-array-sign:
 
 .. doxygenfunction:: parrot::fusion_array::sign
@@ -94,9 +98,10 @@ Fused Operations
 
 .. _cp-fusion-array-map2:
 
-.. doxygenfunction:: parrot::fusion_array::map2(const fusion_array<OtherIterator, OtherMaskIterator, OtherProperties> &value, BinaryFunctor binary_op) const
-
-.. doxygenfunction:: parrot::fusion_array::map2(const T &value, BinaryFunctor binary_op) const
+.. doxygenclass:: parrot::fusion_array
+   :members: map2
+   :members-only:
+   :no-link:
 
 .. _cp-fusion-array-add:
 
@@ -289,6 +294,11 @@ Compactions
 
 .. doxygenfunction:: parrot::fusion_array::distinct
 
+Boolean domains produce at most two distinct values without sorting an
+intermediate array. A known descending order is preserved; otherwise the
+result is ascending. This applies to both ``bool`` storage and integer
+predicate results carrying ``domain::boolean``.
+
 Materializing Operations
 ------------------------
 
@@ -319,6 +329,9 @@ Reductions
    The max_by_key method finds the maximum element based on a key extractor function.
    It's especially useful when working with pairs or complex objects where you
    want to find the maximum based on a specific field or computation.
+   Ties return the first element, and empty inputs produce an empty array.
+   A key function returning ``bool`` uses a search for the first true key,
+   falling back to the first element when all keys are false.
 
 .. _cp-fusion-array-minr:
 
@@ -328,6 +341,10 @@ Reductions
 
 .. doxygenfunction:: parrot::fusion_array::minmax
 
+Naturally ordered integral arrays read their endpoints instead of reducing
+the full array. Masked arrays use the first and last selected elements.
+Empty inputs throw ``std::invalid_argument``.
+
 .. _cp-fusion-array-prod:
 
 .. doxygenfunction:: parrot::fusion_array::prod
@@ -335,6 +352,11 @@ Reductions
 .. _cp-fusion-array-sum:
 
 .. doxygenfunction:: parrot::fusion_array::sum
+
+For ``bool`` storage, ``sum`` returns integer counts of true values, including
+row-wise and column-wise reductions. Predicate arrays retain their existing
+integer result type. Only selected elements contribute to masked sums.
+Global sums of known integral zero domains return zero directly.
 
 Scans
 ~~~~~
@@ -350,6 +372,12 @@ Scans
 .. _cp-fusion-array-anys:
 
 .. doxygenfunction:: parrot::fusion_array::anys
+
+Inclusive logical scans preserve the input's first element. For example,
+``{7, 0, 2}.anys()`` produces ``{7, 1, 1}``. Boolean domain and global ordering
+are guaranteed only when the input values are known to be boolean. Integral
+constant and nonzero domains can produce lazy scans while retaining this
+first-element behavior.
 
 .. _cp-fusion-array-maxs:
 
@@ -367,6 +395,11 @@ Scans
 
 .. doxygenfunction:: parrot::fusion_array::sums
 
+For ``bool`` storage, ``sums`` returns integer prefix counts rather than
+boolean running totals. Masked inputs are compacted before scanning.
+Global scans of known integral zero domains return lazy zeros and preserve
+the logical shape.
+
 Permutations
 ~~~~~~~~~~~~
 
@@ -378,9 +411,18 @@ Permutations
 
 .. doxygenfunction:: parrot::fusion_array::sort_by
 
+Descending integral arrays can sort by returning a reversed view. Recognized
+natural comparators in ``sort_by`` also reuse a compatible ordered view.
+These views retain ownership of the source storage.
+
 .. _cp-fusion-array-sort-by-key:
 
 .. doxygenfunction:: parrot::fusion_array::sort_by_key
+
+Boolean values use two-way partitioning in ``sort_by``. A key function
+returning ``bool`` also uses partitioning in ``sort_by_key``, with false keys
+first. Ordering within each key group is unspecified. Projected sorting does
+not establish a natural value order.
 
 Compactions
 ~~~~~~~~~~~
@@ -388,6 +430,11 @@ Compactions
 .. _cp-fusion-array-rle:
 
 .. doxygenfunction:: parrot::fusion_array::rle
+
+Naturally ascending or descending boolean domains produce at most two
+``(value, count)`` pairs. Unordered inputs preserve consecutive runs:
+``{true, false, true}`` produces three runs. Masked inputs are compacted before
+encoding, so only selected elements contribute to runs.
 
 Copying
 ~~~~~~~
@@ -642,6 +689,33 @@ Statistical Functions
 
 .. note::
    This function computes the statistical mode (most frequently occurring value) of an array.
-   It returns the value that appears most frequently in the array. If all values appear with 
-   equal frequency, it returns the smallest value after sorting. The implementation uses 
-   efficient operations: sorting, run-length encoding, and finding the maximum by count.
+   It returns the value that appears most frequently in the array, choosing
+   the smallest value on ties. Boolean domains use a population count, with
+   false winning a tie. Other domains use sorting, run-length encoding, and
+   finding the maximum by count. Empty inputs, including masks selecting no
+   elements, throw ``std::invalid_argument``.
+
+Additional property specializations
+----------------------------------
+
+For integral values, constant arrays reduce ``uniq`` and ``distinct`` to at
+most one value, ``rle`` to one run, and ``stats::mode`` to an endpoint read.
+Strictly ordered arrays already have unique values: uniqueness operations
+reuse the view, RLE lazily emits ``(value, 1)`` pairs, and mode selects the
+smallest endpoint. Empty results and the descending order of distinct values
+are preserved.
+
+Known zero and nonzero integral domains simplify global ``any``, ``all``, and
+the 1-based indices returned by ``where``. Empty logical inputs retain the
+usual false ``any`` and true ``all`` identities. Truth reductions test values
+before converting their result, so fractional and wide nonzero values are
+handled correctly.
+
+``abs`` is an identity for nonnegative integral values. Known positive,
+negative, and zero signs produce lazy integer constants. Integral sign maps
+weaken strict ordering; negation reverses ordering only for nonnegative
+signed integral inputs, where negating the signed minimum is impossible.
+
+Floating constant uniqueness retains its generic path. Floating RLE detects
+run starts by comparing adjacent values, preserving separate NaN runs and
+the first representative of equal values, including signed zero.

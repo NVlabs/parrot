@@ -181,8 +181,10 @@ exhale_args = {
     "Complete API documentation for all classes and functions.",
     "fullToctreeMaxDepth":
     5,
+    # Exhale 0.3.7 emits invalid cross-page links for enum template parameters.
+    # Breathe already includes the parameter order in each template signature.
     "includeTemplateParamOrderList":
-    True,
+    False,
     "unabridgedOrphanKinds": ["class", "function", "define", "file"],
     "verboseBuild":
     True,

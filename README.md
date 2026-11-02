@@ -62,6 +62,26 @@ int main() {
 }
 ```
 
+### Deterministic random values
+
+Use `.drand()` for repeatable random values, or specify a seed with
+`.drand(1234)`. The default seed is `42`. Like `.rand()`, each nonnegative input
+element bounds its result in `[0, value)`; zero stays zero. Integer results
+truncate toward zero, and the result preserves the input's type and shape.
+
+```cpp
+auto bounds = parrot::array({100, 100, 100, 100});
+bounds.drand().print();      // 25 8 57 22
+bounds.drand(1234).print();  // 71 20 74 34
+```
+
+The 32-bit LCG advances as `state = 1664525 * state + 1013904223` modulo `2^32`;
+element `i` uses state `i + 1`. Seeds wrap modulo `2^32`. Generation stays lazy,
+with logarithmic skip-ahead per index and no shared mutable random state.
+The same inputs and seed give the same sequence on the host and GPU and in the
+experimental Python implementation. Filtered inputs are compacted before indices
+are assigned.
+
 ## 🏗️ Building
 
 ### Prerequisites

@@ -23,6 +23,7 @@
 #include <thrust/device_reference.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
+#include <thrust/find.h>
 #include <thrust/functional.h>
 #include <thrust/host_vector.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -32,6 +33,7 @@
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/pair.h>
+#include <thrust/partition.h>
 #include <thrust/random.h>
 #include <thrust/random/uniform_real_distribution.h>
 #include <thrust/reduce.h>
@@ -47,6 +49,7 @@
 #include <cuda/functional>
 #include <cuda/iterator>
 #include <cuda/std/functional>
+#include <cuda/std/limits>
 #include <initializer_list>
 #include <iomanip>
 #include <iostream>
@@ -204,6 +207,9 @@ inline constexpr bool is_strict_v = Properties::order ==
                                       order::strictly_ascending ||
                                     Properties::order ==
                                       order::strictly_descending;
+
+template <typename Properties>
+inline constexpr bool is_constant_v = Properties::order == order::constant;
 
 template <typename Properties>
 inline constexpr bool is_grouped_by_value_v = is_ascending_v<Properties> ||
@@ -433,6 +439,34 @@ struct gt {
     template <typename T>
     __host__ __device__ auto operator()(const T &a, const T &b) const -> int {
         return a > b ? 1 : 0;
+    }
+};
+
+template <typename Value, typename BinaryComp>
+struct boolean_order_predicate {
+    BinaryComp comp;
+
+    __device__ auto operator()(Value value) const -> bool {
+        return comp(value, Value(!value));
+    }
+};
+
+template <typename Value, typename KeyFunc>
+struct false_key_predicate {
+    KeyFunc key_func;
+
+    __device__ auto operator()(const Value &value) const -> bool {
+        return !key_func(value);
+    }
+};
+
+template <typename Value, typename KeyFunc>
+struct projected_less {
+    KeyFunc key_func;
+
+    __device__ auto operator()(const Value &left, const Value &right) const
+      -> bool {
+        return key_func(left) < key_func(right);
     }
 };
 
@@ -723,6 +757,63 @@ struct rand_functor {
     }
 };
 
+// Index-addressable LCG: advance seed by index + 1 without a shared RNG state.
+template <typename T>
+struct drand_functor {
+    std::uint32_t seed;
+
+    __host__ __device__ auto operator()(const thrust::tuple<int, T> &t) const
+      -> T {
+        // Compose affine LCG steps by exponentiation, in O(log(index + 1)).
+        std::uint32_t steps = static_cast<std::uint32_t>(thrust::get<0>(t)) +
+                              1U;
+        std::uint32_t multiplier = 1664525U, increment = 1013904223U;
+        std::uint32_t accumulated_multiplier = 1U, accumulated_increment = 0U;
+        while (steps) {
+            if (steps & 1U) {
+                accumulated_multiplier *= multiplier;
+                accumulated_increment = accumulated_increment * multiplier +
+                                        increment;
+            }
+            increment *= multiplier + 1U;
+            multiplier *= multiplier;
+            steps >>= 1U;
+        }
+        std::uint32_t state = accumulated_multiplier * seed +
+                              accumulated_increment;
+        T value = thrust::get<1>(t);
+        if constexpr (std::is_integral_v<T>) {
+            bool negative = false;
+            if constexpr (std::is_signed_v<T>) { negative = value < 0; }
+            std::uint64_t bound = static_cast<std::uint64_t>(value);
+            if (negative) { bound = std::uint64_t{0} - bound; }
+            // floor(state * bound / 2^32), without overflow or float rounding.
+            auto wide_state = static_cast<std::uint64_t>(state);
+            auto scaled     = wide_state * (bound >> 32U) +
+                          ((wide_state * (bound & 0xFFFFFFFFULL)) >> 32U);
+            if constexpr (std::is_signed_v<T>) {
+                if (negative) { return -static_cast<T>(scaled); }
+            }
+            return static_cast<T>(scaled);
+        } else {
+            T result = static_cast<T>(
+              (static_cast<double>(state) / 4294967296.0) * value);
+            // Rounding to the element dtype must not include the upper bound.
+            if (result == value && value != T{0}) {
+                constexpr double
+                  epsilon = cuda::std::numeric_limits<T>::epsilon() / 2.0;
+                constexpr double
+                  smallest  = cuda::std::numeric_limits<T>::denorm_min();
+                double step = std::abs(static_cast<double>(value)) * epsilon;
+                if (step < smallest) { step = smallest; }
+                result = static_cast<T>(value > T{0} ? value - step
+                                                     : value + step);
+            }
+            return result;
+        }
+    }
+};
+
 // Adapter to convert binary functors from tuple-based to two-argument calling
 // convention
 template <typename BinaryFunctor>
@@ -823,6 +914,63 @@ struct pair_op_functor {
 
 namespace detail {
 
+template <typename Value>
+struct unit_run_functor {
+    __host__ __device__ auto operator()(Value value) const
+      -> thrust::pair<Value, int> {
+        return {value, 1};
+    }
+};
+
+template <typename Iterator>
+struct run_start_predicate {
+    Iterator begin;
+
+    __host__ __device__ auto operator()(int index) const -> bool {
+        return index == 0 || begin[index] != begin[index - 1];
+    }
+};
+
+template <typename Iterator, typename StartIterator>
+struct run_pair_functor {
+    Iterator begin;
+    StartIterator starts;
+    int size;
+    int runs;
+
+    __host__ __device__ auto operator()(int index) const
+      -> thrust::pair<typename cuda::std::iterator_traits<Iterator>::value_type,
+                      int> {
+        int const start = starts[index];
+        int const end   = index + 1 == runs ? size : int(starts[index + 1]);
+        return {begin[start], end - start};
+    }
+};
+
+template <typename Value>
+struct constant_truth_scan_functor {
+    Value first;
+
+    __host__ __device__ auto operator()(int index) const -> Value {
+        // Inclusive scans retain the original first element.
+        return index == 0 ? first : Value(first != Value(0));
+    }
+};
+
+template <typename Comparator, typename Value>
+inline constexpr auto natural_order_v = [] {
+    using comp = std::remove_cvref_t<Comparator>;
+    if constexpr (std::is_same_v<comp, parrot::lt> ||
+                  std::is_same_v<comp, cuda::std::less<Value>>) {
+        return order::ascending;
+    } else if constexpr (std::is_same_v<comp, parrot::gt> ||
+                         std::is_same_v<comp, cuda::std::greater<Value>>) {
+        return order::descending;
+    } else {
+        return order::unknown;
+    }
+}();
+
 template <typename Iterator>
 struct print_value_functor {
     Iterator begin;
@@ -862,6 +1010,40 @@ class fusion_array {
 
     // Helper to check if this is a masked array
     static constexpr bool has_mask = !std::is_same_v<MaskIterator, no_mask_t>;
+
+    // A constant result only needs the logical size, not the source values.
+    template <typename ResultProperties, typename Value>
+    [[nodiscard]] auto _constant_like(Value value) const {
+        int const n       = size();
+        auto result_begin = cuda::make_constant_iterator(value);
+        auto result_shape = has_mask ? std::vector<int>{n} : _shape;
+        return fusion_array<decltype(result_begin),
+                            no_mask_t,
+                            ResultProperties>(
+          result_begin, result_begin + n, nullptr, result_shape);
+    }
+
+    [[nodiscard]] auto _constant_truth_scan() const {
+        using value = typename cuda::std::iterator_traits<Iterator>::value_type;
+        int const n = size();
+        value const first       = n == 0 ? value(0) : front();
+        using result_properties = properties<
+          is_boolean_v<Properties>   ? domain::boolean
+          : is_nonzero_v<Properties> ? domain::nonzero
+                                     : domain::unknown,
+          is_boolean_v<Properties> && is_constant_v<Properties>
+            ? order::constant
+            : order::unknown,
+          Properties::nonempty>;
+        auto result_begin = thrust::make_transform_iterator(
+          thrust::make_counting_iterator(0),
+          detail::constant_truth_scan_functor<value>{first});
+        auto result_shape = has_mask ? std::vector<int>{n} : _shape;
+        return fusion_array<decltype(result_begin),
+                            no_mask_t,
+                            result_properties>(
+          result_begin, result_begin + n, nullptr, result_shape);
+    }
 
     // Helper to get unmasked data as a fusion_array
     [[nodiscard]] auto _data() const {
@@ -1426,7 +1608,17 @@ class fusion_array {
      * @brief Calculate absolute value of each element
      * @return A new fusion_array with absolute values
      */
-    [[nodiscard]] auto abs() const { return map(abs_functor<value_type>()); }
+    [[nodiscard]] auto abs() const {
+        if constexpr (std::is_integral_v<value_type> &&
+                      (is_nonnegative_v<Properties> ||
+                       std::is_unsigned_v<value_type>)) {
+            return *this;
+        } else if constexpr (has_mask) {
+            return apply().abs();
+        } else {
+            return map(abs_functor<value_type>());
+        }
+    }
 
     /**
      * @brief Calculate natural logarithm of each element
@@ -1444,7 +1636,24 @@ class fusion_array {
      * @brief Calculate negative of each element
      * @return A new fusion_array with negative values
      */
-    [[nodiscard]] auto neg() const { return map(thrust::negate<value_type>()); }
+    [[nodiscard]] auto neg() const {
+        if constexpr (has_mask) {
+            return apply().neg();
+        } else if constexpr (std::is_integral_v<value_type> &&
+                             std::is_signed_v<value_type> &&
+                             is_nonnegative_v<Properties>) {
+            // Nonnegative signed inputs cannot contain the signed minimum.
+            using result_properties = properties<
+              Properties::domain == domain::zero ? domain::zero
+              : is_positive_v<Properties>        ? domain::negative
+                                                 : domain::nonpositive,
+              reverse_order(Properties::order),
+              Properties::nonempty>;
+            return map<result_properties>(thrust::negate<value_type>());
+        } else {
+            return map(thrust::negate<value_type>());
+        }
+    }
 
     /**
      * @brief Check if each element is odd
@@ -1467,7 +1676,32 @@ class fusion_array {
      * @return A new fusion_array containing 1 for positive, 0 for zero, -1 for
      * negative
      */
-    [[nodiscard]] auto sign() const { return map(sign_functor<value_type>()); }
+    [[nodiscard]] auto sign() const {
+        if constexpr (std::is_arithmetic_v<value_type> &&
+                      (is_positive_v<Properties> || is_negative_v<Properties> ||
+                       Properties::domain == domain::zero)) {
+            constexpr int value     = is_positive_v<Properties>   ? 1
+                                      : is_negative_v<Properties> ? -1
+                                                                  : 0;
+            using result_properties = properties<Properties::domain,
+                                                 order::constant,
+                                                 Properties::nonempty>;
+            return _constant_like<result_properties>(value);
+        } else if constexpr (has_mask) {
+            return apply().sign();
+        } else if constexpr (std::is_integral_v<value_type>) {
+            using result_properties = properties<
+              is_nonnegative_v<Properties> || std::is_unsigned_v<value_type>
+                ? domain::boolean
+              : is_nonzero_v<Properties> ? domain::nonzero
+                                         : domain::unknown,
+              weaken_strict_order(Properties::order),
+              Properties::nonempty>;
+            return map<result_properties>(sign_functor<value_type>());
+        } else {
+            return map(sign_functor<value_type>());
+        }
+    }
 
     /**
      * @brief Calculate square root of each element
@@ -1517,16 +1751,51 @@ class fusion_array {
     }
 
     /**
+     * @brief Generate deterministic random values between zero and each element
+     * @param seed Initial 32-bit LCG state (defaults to 42)
+     * @return A lazy array preserving element type and shape
+     * @details For nonnegative bounds, results are in [0, value); zero stays
+     * zero. State advances as (1664525 * state + 1013904223) modulo 2^32.
+     * Element i uses the (i + 1)th state, scaled by its value; integer scaling
+     * truncates toward zero. Each index is computed independently, so repeated
+     * evaluations and GPU scheduling produce the same sequence. Masks are
+     * applied before assigning indices. Seeds wrap modulo 2^32.
+     */
+    [[nodiscard]] auto drand(std::uint32_t seed = 42U) const {
+        static_assert(std::is_arithmetic_v<value_type>,
+                      "drand requires real numeric elements");
+        if constexpr (has_mask) {
+            return apply().drand(seed);
+        } else {
+            auto indices   = thrust::make_counting_iterator(0);
+            auto zip_begin = thrust::make_zip_iterator(
+              thrust::make_tuple(indices, _begin));
+            auto zip_end = thrust::make_zip_iterator(
+              thrust::make_tuple(indices + size(), _end));
+            auto operation        = drand_functor<value_type>{seed};
+            using result_iterator = thrust::
+              transform_iterator<decltype(operation), decltype(zip_begin)>;
+            return fusion_array<result_iterator>(
+              thrust::make_transform_iterator(zip_begin, operation),
+              thrust::make_transform_iterator(zip_end, operation),
+              _owned_storage,
+              _shape);
+        }
+    }
+
+    /**
      * @brief Get the size of the array
      * @return The number of elements
      */
     [[nodiscard]] auto size() const -> int {
         if constexpr (has_mask) {
             // For masked arrays, count the number of non-zero mask elements
-            auto mask_begin = _mask_range.first;
-            auto mask_end   = _mask_range.second;
+            auto mask_begin       = _mask_range.first;
+            auto mask_end         = _mask_range.second;
+            using mask_value_type = typename cuda::std::iterator_traits<
+              MaskIterator>::value_type;
             return thrust::count_if(
-              mask_begin, mask_end, cuda::std::identity{});
+              mask_begin, mask_end, cast_functor<bool, mask_value_type>());
         } else {
             return cuda::std::distance(_begin, _end);
         }
@@ -1583,6 +1852,7 @@ class fusion_array {
     /**
      * @brief Sort the array (eager operation)
      * @return A new fusion_array with sorted elements
+     * @details Known natural order can reuse a view of the source storage.
      */
     [[nodiscard]] auto sort() const {
         if constexpr (has_mask) {
@@ -1590,6 +1860,9 @@ class fusion_array {
         } else if constexpr (is_ascending_v<Properties>) {
             // The compile-time ordering guarantee makes sorting an identity.
             return *this;
+        } else if constexpr (std::is_integral_v<value_type> &&
+                             is_descending_v<Properties>) {
+            return rev().flatten();
         } else {
             int n = size();
             auto
@@ -1629,38 +1902,48 @@ class fusion_array {
      */
     template <typename BinaryComp>
     auto sort_by(BinaryComp comp) const {
-        if constexpr (has_mask) { return apply().sort_by(comp); }
-
-        int n            = size();
-        auto sorted_data = std::make_shared<thrust::device_vector<value_type>>(
-          n, thrust::default_init);
-
-        thrust::copy(_begin, _end, sorted_data->begin());
-        thrust::sort(sorted_data->begin(), sorted_data->end(), comp);
-
-        using comp_type                    = std::remove_cvref_t<BinaryComp>;
-        static constexpr auto result_order = [] {
-            if constexpr (std::is_same_v<comp_type, parrot::lt> ||
-                          std::is_same_v<comp_type,
-                                         cuda::std::less<value_type>>) {
-                return order::ascending;
-            } else if constexpr (std::is_same_v<comp_type, parrot::gt> ||
-                                 std::is_same_v<
-                                   comp_type,
-                                   cuda::std::greater<value_type>>) {
-                return order::descending;
+        if constexpr (has_mask) {
+            return apply().sort_by(comp);
+        } else if constexpr (std::is_integral_v<value_type> &&
+                             detail::natural_order_v<BinaryComp, value_type> ==
+                               order::ascending) {
+            return sort().flatten();
+        } else if constexpr (std::is_integral_v<value_type> &&
+                             detail::natural_order_v<BinaryComp, value_type> ==
+                               order::descending) {
+            if constexpr (is_descending_v<Properties>) {
+                return flatten();
             } else {
-                return order::unknown;
+                return sort().rev().flatten();
             }
-        }();
-        using result_properties = properties<Properties::domain,
-                                             result_order,
-                                             Properties::nonempty>;
-        return fusion_array<
-          typename thrust::device_vector<value_type>::iterator,
-          no_mask_t,
-          result_properties>(
-          sorted_data->begin(), sorted_data->end(), sorted_data);
+        } else {
+            int n = size();
+            auto
+              sorted_data = std::make_shared<thrust::device_vector<value_type>>(
+                n, thrust::default_init);
+
+            thrust::copy(_begin, _end, sorted_data->begin());
+            if constexpr (is_boolean_v<Properties>) {
+                // Only the relative order of 0 and 1 matters. Evaluate the
+                // comparator on the device so device-only functors also work.
+                thrust::partition(
+                  sorted_data->begin(),
+                  sorted_data->end(),
+                  boolean_order_predicate<value_type, BinaryComp>{comp});
+            } else {
+                thrust::sort(sorted_data->begin(), sorted_data->end(), comp);
+            }
+
+            using result_properties = properties<
+              Properties::domain,
+              detail::natural_order_v<BinaryComp, value_type>,
+              Properties::nonempty>;
+            return fusion_array<
+              typename thrust::device_vector<value_type>::iterator,
+              no_mask_t,
+              result_properties>(
+              sorted_data->begin(), sorted_data->end(), sorted_data);
+        }
     }
 
     /**
@@ -1685,14 +1968,18 @@ class fusion_array {
         // Copy the array to the device vector
         thrust::copy(_begin, _end, sorted_data->begin());
 
-        // Create a comparator that uses the key function
-        auto key_comp = [key_func] __host__ __device__(const value_type &a,
-                                                       const value_type &b) {
-            return key_func(a) < key_func(b);
-        };
-
-        // Sort using the key comparator
-        thrust::sort(sorted_data->begin(), sorted_data->end(), key_comp);
+        using key_properties = default_properties_t<
+          thrust::transform_iterator<KeyFunc, Iterator>>;
+        if constexpr (is_boolean_v<key_properties>) {
+            thrust::partition(
+              sorted_data->begin(),
+              sorted_data->end(),
+              false_key_predicate<value_type, KeyFunc>{key_func});
+        } else {
+            thrust::sort(sorted_data->begin(),
+                         sorted_data->end(),
+                         projected_less<value_type, KeyFunc>{key_func});
+        }
 
         // Sorting by a projection does not imply natural value ordering.
         using result_properties = properties<Properties::domain,
@@ -1725,7 +2012,10 @@ class fusion_array {
                 cudaStream_t stream                        = 0) const {
         using value_type = typename std::iterator_traits<Iterator>::value_type;
 
-        if constexpr (Axis == 0) {
+        if constexpr (has_mask) {
+            return apply().template reduce<Axis, ResultProperties>(
+              init, op, std::integral_constant<int, Axis>{}, stream);
+        } else if constexpr (Axis == 0) {
             // Default reduction (all elements)
             // Perform the reduction to get a single scalar value
             if (stream != 0) {
@@ -1821,6 +2111,8 @@ class fusion_array {
             return fusion_array<cuda::constant_iterator<host_value_type>,
                                 no_mask_t,
                                 scalar_properties_t<host_value_type>>(front());
+        } else if constexpr (std::is_same_v<value_type, bool>) {
+            return reduce<Axis>(false, cuda::std::logical_or<bool>());
         } else {
             return reduce<Axis>(std::numeric_limits<value_type>::lowest(),
                                 cuda::maximum<value_type>());
@@ -1850,6 +2142,8 @@ class fusion_array {
             return fusion_array<cuda::constant_iterator<host_value_type>,
                                 no_mask_t,
                                 scalar_properties_t<host_value_type>>(back());
+        } else if constexpr (std::is_same_v<value_type, bool>) {
+            return reduce<Axis>(true, cuda::std::logical_and<bool>());
         } else {
             return reduce<Axis>(std::numeric_limits<value_type>::max(),
                                 cuda::minimum<value_type>());
@@ -1863,13 +2157,32 @@ class fusion_array {
      * @param axis Optional integral_constant parameter for axis (allows 2_ic
      * syntax)
      * @return A fusion_array containing the sum of elements
+     * @details Boolean storage is promoted to int and counts true values.
      */
     template <int Axis = 0, typename T = int>
     [[nodiscard]] auto sum(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
-        if constexpr (has_mask) {
+        if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                      Properties::domain == domain::zero) {
+            using result_value = std::conditional_t<
+              has_mask,
+              decltype(1 * value_type{}),
+              std::conditional_t<std::is_same_v<value_type, bool>,
+                                 int,
+                                 value_type>>;
+            return fusion_array<
+              cuda::constant_iterator<result_value>,
+              no_mask_t,
+              properties<domain::zero, order::constant, true>>(result_value(0));
+        } else if constexpr (has_mask) {
             // Zero out masked elements and sum (no materialization)
-            return (_mask() * _data()).template sum<Axis>();
+            if constexpr (is_boolean_v<Properties>) {
+                return (_mask().neq(0) * _data()).template sum<Axis>();
+            } else {
+                return (_mask() * _data()).template sum<Axis>();
+            }
+        } else if constexpr (std::is_same_v<value_type, bool>) {
+            return as<int>().template sum<Axis>();
         } else {
             return reduce<Axis>(value_type(0), cuda::std::plus<value_type>());
         }
@@ -1891,7 +2204,29 @@ class fusion_array {
                                              Axis == 0 ? order::constant
                                                        : order::unknown,
                                              Axis == 0>;
-        return reduce<Axis, result_properties>(0, cuda::std::logical_or<int>());
+        if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                      Properties::domain == domain::zero) {
+            return fusion_array<cuda::constant_iterator<int>,
+                                no_mask_t,
+                                result_properties>(0);
+        } else if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                             is_nonzero_v<Properties>) {
+            int const result = Properties::nonempty || size() != 0;
+            return fusion_array<cuda::constant_iterator<int>,
+                                no_mask_t,
+                                result_properties>(result);
+        } else if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                             is_constant_v<Properties>) {
+            int const result = size() != 0 && front() != value_type(0);
+            return fusion_array<cuda::constant_iterator<int>,
+                                no_mask_t,
+                                result_properties>(result);
+        } else {
+            // Transparent logical functors avoid truncating fractional and
+            // wide integer values to int before testing their truth value.
+            return reduce<Axis, result_properties>(0,
+                                                   cuda::std::logical_or<>());
+        }
     }
 
     /**
@@ -1910,8 +2245,26 @@ class fusion_array {
                                              Axis == 0 ? order::constant
                                                        : order::unknown,
                                              Axis == 0>;
-        return reduce<Axis, result_properties>(1,
-                                               cuda::std::logical_and<int>());
+        if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                      is_nonzero_v<Properties>) {
+            return fusion_array<cuda::constant_iterator<int>,
+                                no_mask_t,
+                                result_properties>(1);
+        } else if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                             Properties::domain == domain::zero) {
+            return fusion_array<cuda::constant_iterator<int>,
+                                no_mask_t,
+                                result_properties>(int(size() == 0));
+        } else if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                             is_constant_v<Properties>) {
+            int const result = size() == 0 || front() != value_type(0);
+            return fusion_array<cuda::constant_iterator<int>,
+                                no_mask_t,
+                                result_properties>(result);
+        } else {
+            return reduce<Axis, result_properties>(1,
+                                                   cuda::std::logical_and<>());
+        }
     }
 
     /**
@@ -1939,9 +2292,16 @@ class fusion_array {
     [[nodiscard]] auto front() const {
         using host_value_type = extract_value_type_t<value_type>;
         if constexpr (has_mask) {
-            // Apply mask first
-            auto unmasked = _apply_mask_if_needed();
-            return static_cast<host_value_type>(unmasked.front());
+            using mask_value = typename cuda::std::iterator_traits<
+              MaskIterator>::value_type;
+            auto selected = thrust::find_if(_mask_range.first,
+                                            _mask_range.second,
+                                            cast_functor<bool, mask_value>());
+            if (selected == _mask_range.second) {
+                throw std::invalid_argument("front requires nonempty input");
+            }
+            return static_cast<host_value_type>(
+              _begin[cuda::std::distance(_mask_range.first, selected)]);
         }
         return static_cast<host_value_type>(*_begin);
     }
@@ -1953,9 +2313,19 @@ class fusion_array {
     [[nodiscard]] auto back() const {
         using host_value_type = extract_value_type_t<value_type>;
         if constexpr (has_mask) {
-            // Apply mask first and convert to host type
-            auto unmasked = _apply_mask_if_needed();
-            return static_cast<host_value_type>(unmasked.back());
+            using mask_value = typename cuda::std::iterator_traits<
+              MaskIterator>::value_type;
+            auto rbegin   = thrust::make_reverse_iterator(_mask_range.second);
+            auto rend     = thrust::make_reverse_iterator(_mask_range.first);
+            auto selected = thrust::find_if(
+              rbegin, rend, cast_functor<bool, mask_value>());
+            if (selected == rend) {
+                throw std::invalid_argument("back requires nonempty input");
+            }
+            auto offset = cuda::std::distance(_mask_range.first,
+                                              selected.base()) -
+                          1;
+            return static_cast<host_value_type>(_begin[offset]);
         }
         // Convert to consistent host type
         return static_cast<host_value_type>(*(_end - 1));
@@ -1994,15 +2364,49 @@ class fusion_array {
      */
     template <int Axis = 0, typename T = int>
     [[nodiscard]] auto prod() const {
-        return reduce<Axis>(value_type(1), cuda::std::multiplies<value_type>());
+        if constexpr (is_boolean_v<Properties>) {
+            return reduce<Axis>(value_type(1),
+                                cuda::std::logical_and<value_type>());
+        } else {
+            return reduce<Axis>(value_type(1),
+                                cuda::std::multiplies<value_type>());
+        }
     }
 
     /**
      * @brief Get indices where elements are non-zero (lazy operation)
-     * @return A masked fusion_array containing the 1-indexed positions where
+     * @return A fusion_array containing the 1-indexed positions where
      * elements are non-zero
      */
-    [[nodiscard]] auto where() const { return range(size()).keep(*this); }
+    [[nodiscard]] auto where() const {
+        // Shift zero-based positions lazily: even size() == INT_MAX has a
+        // representable end iterator, without needing the value size() + 1.
+        auto index_begin = thrust::make_transform_iterator(
+          thrust::make_counting_iterator(0), add_functor<int>(1));
+        using index_iterator = decltype(index_begin);
+        if constexpr (std::is_integral_v<value_type> &&
+                      (Properties::domain == domain::zero ||
+                       is_nonzero_v<Properties>)) {
+            using result_properties = properties<domain::positive,
+                                                 order::strictly_ascending,
+                                                 is_nonzero_v<Properties> &&
+                                                   Properties::nonempty>;
+            int const n = Properties::domain == domain::zero ? 0 : size();
+            return fusion_array<index_iterator, no_mask_t, result_properties>(
+              index_begin, index_begin + n);
+        } else if constexpr (has_mask) {
+            return apply().where();
+        } else {
+            // Construct an empty counting range without calling range(0).
+            using index_properties = properties<domain::positive,
+                                                order::strictly_ascending>;
+            auto indices           = fusion_array<index_iterator,
+                                                  no_mask_t,
+                                                  index_properties>(index_begin,
+                                                          index_begin + size());
+            return indices.keep(*this);
+        }
+    }
 
     /**
      * @brief Filter elements based on a mask array (lazy operation)
@@ -2085,12 +2489,26 @@ class fusion_array {
     template <int Axis = 0>
     [[nodiscard]] auto anys(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
-        using result_properties = properties<domain::boolean,
-                                             Axis == 0 ? order::ascending
-                                                       : order::unknown,
-                                             Properties::nonempty>;
-        return scan<Axis, result_properties>(
-          cuda::std::logical_or<value_type>());
+        constexpr bool boolean_values = is_boolean_v<Properties> ||
+                                        std::is_same_v<value_type, bool>;
+        using result_properties = properties<
+          boolean_values ? domain::boolean : domain::unknown,
+          Axis == 0 && boolean_values ? order::ascending : order::unknown,
+          Properties::nonempty>;
+        if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                      Properties::domain == domain::zero) {
+            using zero_properties = properties<domain::zero,
+                                               order::constant,
+                                               Properties::nonempty>;
+            return _constant_like<zero_properties>(value_type(0));
+        } else if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                             (is_constant_v<Properties> ||
+                              is_nonzero_v<Properties>)) {
+            return _constant_truth_scan();
+        } else {
+            return scan<Axis, result_properties>(
+              cuda::std::logical_or<value_type>());
+        }
     }
 
     /**
@@ -2104,12 +2522,26 @@ class fusion_array {
     template <int Axis = 0>
     [[nodiscard]] auto alls(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
-        using result_properties = properties<domain::boolean,
-                                             Axis == 0 ? order::descending
-                                                       : order::unknown,
-                                             Properties::nonempty>;
-        return scan<Axis, result_properties>(
-          cuda::std::logical_and<value_type>());
+        constexpr bool boolean_values = is_boolean_v<Properties> ||
+                                        std::is_same_v<value_type, bool>;
+        using result_properties = properties<
+          boolean_values ? domain::boolean : domain::unknown,
+          Axis == 0 && boolean_values ? order::descending : order::unknown,
+          Properties::nonempty>;
+        if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                      Properties::domain == domain::zero) {
+            using zero_properties = properties<domain::zero,
+                                               order::constant,
+                                               Properties::nonempty>;
+            return _constant_like<zero_properties>(value_type(0));
+        } else if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                             (is_constant_v<Properties> ||
+                              is_nonzero_v<Properties>)) {
+            return _constant_truth_scan();
+        } else {
+            return scan<Axis, result_properties>(
+              cuda::std::logical_and<value_type>());
+        }
     }
 
     /**
@@ -2125,6 +2557,8 @@ class fusion_array {
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
         if constexpr (Axis == 0 && is_descending_v<Properties>) {
             return *this;
+        } else if constexpr (is_boolean_v<Properties>) {
+            return alls<Axis>();
         } else {
             using result_properties = properties<Properties::domain,
                                                  Axis == 0 ? order::descending
@@ -2147,6 +2581,8 @@ class fusion_array {
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
         if constexpr (Axis == 0 && is_ascending_v<Properties>) {
             return *this;
+        } else if constexpr (is_boolean_v<Properties>) {
+            return anys<Axis>();
         } else {
             using result_properties = properties<Properties::domain,
                                                  Axis == 0 ? order::ascending
@@ -2163,11 +2599,27 @@ class fusion_array {
      * @param axis Optional integral_constant parameter for axis (allows 2_ic
      * syntax)
      * @return A new fusion_array containing running sum of elements
+     * @details Boolean storage is promoted to int and produces prefix counts.
+     * Masked inputs are compacted before scanning.
      */
     template <int Axis = 0>
     [[nodiscard]] auto sums(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
-        return scan<Axis>(cuda::std::plus<value_type>());
+        if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
+                      Properties::domain == domain::zero) {
+            using result_value = std::
+              conditional_t<std::is_same_v<value_type, bool>, int, value_type>;
+            using result_properties = properties<domain::zero,
+                                                 order::constant,
+                                                 Properties::nonempty>;
+            return _constant_like<result_properties>(result_value(0));
+        } else if constexpr (has_mask) {
+            return apply().template sums<Axis>();
+        } else if constexpr (std::is_same_v<value_type, bool>) {
+            return as<int>().template sums<Axis>();
+        } else {
+            return scan<Axis>(cuda::std::plus<value_type>());
+        }
     }
 
     /**
@@ -2181,7 +2633,11 @@ class fusion_array {
     template <int Axis = 0>
     [[nodiscard]] auto prods(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
-        return scan<Axis>(cuda::std::multiplies<value_type>());
+        if constexpr (is_boolean_v<Properties>) {
+            return alls<Axis>();
+        } else {
+            return scan<Axis>(cuda::std::multiplies<value_type>());
+        }
     }
 
     /**
@@ -2201,7 +2657,9 @@ class fusion_array {
     template <int Axis = 0, typename ResultProperties = void, typename BinaryOp>
     auto scan(BinaryOp op,
               std::integral_constant<int, Axis> /*axis*/ = {}) const {
-        if constexpr (Axis == 0) {
+        if constexpr (has_mask) {
+            return apply().template scan<Axis, ResultProperties>(op);
+        } else if constexpr (Axis == 0) {
             int n = size();
             // Create a device vector to store the scan results
             auto
@@ -2281,22 +2739,86 @@ class fusion_array {
 
     /**
      * @brief Remove adjacent duplicate elements (lazy operation)
-     * @return A masked fusion_array that will filter out adjacent duplicates
-     * when evaluated
+     * @return A fusion_array retaining the first element of each run
+     * @details Integral constant and strictly ordered inputs can return views
+     * without constructing a duplicate mask.
      */
     [[nodiscard]] auto uniq() const {
-        return this->template keep<Properties>(this->differ().prepend(1));
+        if constexpr (std::is_integral_v<value_type> &&
+                      is_strict_v<Properties>) {
+            if constexpr (has_mask) {
+                return fusion_array<Iterator, MaskIterator, Properties>(
+                  _begin,
+                  _end,
+                  _owned_storage,
+                  std::vector<int>{int(cuda::std::distance(_begin, _end))},
+                  _mask_range.first,
+                  _mask_range.second,
+                  _mask_storage);
+            } else {
+                return flatten();
+            }
+        } else if constexpr (std::is_integral_v<value_type> &&
+                             is_constant_v<Properties>) {
+            int const n = size() == 0 ? 0 : 1;
+            if constexpr (has_mask) {
+                auto unique_begin = cuda::make_constant_iterator(
+                  n == 0 ? value_type(0) : front());
+                return fusion_array<decltype(unique_begin),
+                                    no_mask_t,
+                                    Properties>(unique_begin, unique_begin + n);
+            } else {
+                return fusion_array<Iterator, no_mask_t, Properties>(
+                  _begin, _begin + n, _owned_storage);
+            }
+        } else if constexpr (has_mask) {
+            return apply().uniq();
+        } else {
+            // The leading sentinel must not create an entry for empty input.
+            return this->template keep<Properties>(
+              this->differ().prepend(1).take(size()));
+        }
     }
 
     /**
      * @brief Remove duplicate elements from the array (lazy-ish operation)
      * @details Arrays whose compile-time order guarantees that equal values are
      * grouped can remove adjacent duplicates directly. Other arrays are sorted
-     * first.
+     * first. Boolean domains emit at most two values, preserving a known
+     * descending order and otherwise using ascending order.
      * @return A new fusion_array containing only unique elements
      */
     [[nodiscard]] auto distinct() const {
-        if constexpr (is_grouped_by_value_v<Properties>) {
+        if constexpr (std::is_integral_v<value_type> &&
+                      (is_constant_v<Properties> || is_strict_v<Properties>)) {
+            return uniq();
+        } else if constexpr (has_mask) {
+            return apply().distinct();
+        } else if constexpr (is_boolean_v<Properties>) {
+            int const num_true    = thrust::count(_begin, _end, true);
+            int const num_false   = size() - num_true;
+            int const result_size = int(num_false != 0) + int(num_true != 0);
+            auto
+              result_vec = std::make_shared<thrust::device_vector<value_type>>(
+                result_size, thrust::default_init);
+            constexpr bool descending = is_descending_v<Properties>;
+            if (num_false != 0) {
+                (*result_vec)[descending ? result_size - 1 : 0] = value_type(0);
+            }
+            if (num_true != 0) {
+                (*result_vec)[descending ? 0 : result_size - 1] = value_type(1);
+            }
+            using result_properties = properties<
+              Properties::domain,
+              is_grouped_by_value_v<Properties> ? Properties::order
+                                                : order::ascending,
+              Properties::nonempty>;
+            return fusion_array<
+              typename thrust::device_vector<value_type>::iterator,
+              no_mask_t,
+              result_properties>(
+              result_vec->begin(), result_vec->end(), result_vec);
+        } else if constexpr (is_grouped_by_value_v<Properties>) {
             return this->uniq();
         } else {
             return this->sort().uniq();
@@ -2306,53 +2828,117 @@ class fusion_array {
     /**
      * @brief Run-length encode the array (eager operation)
      * @return A fusion_array of thrust::pairs with value and count
+     * @details Naturally ordered boolean domains need at most two output
+     * pairs. Unordered inputs retain all consecutive runs. Masked inputs are
+     * processed in logical order. Constant integral inputs need one pair;
+     * strictly ordered integral inputs can lazily pair each value with 1.
      */
     [[nodiscard]] auto rle() const {
         using pair_type = thrust::pair<value_type, int>;
         int n           = size();
 
-        // Create a result vector to store pairs of (value, count)
-        auto result_vec = std::make_shared<thrust::device_vector<pair_type>>(
-          n, thrust::default_init);
+        if constexpr (std::is_integral_v<value_type> &&
+                      is_constant_v<Properties>) {
+            auto run_begin = cuda::make_constant_iterator(
+              pair_type(n == 0 ? value_type(0) : front(), n));
+            return fusion_array<decltype(run_begin)>(run_begin,
+                                                     run_begin + int(n != 0));
+        } else if constexpr (has_mask) {
+            return apply().rle();
+        } else if constexpr (std::is_integral_v<value_type> &&
+                             is_strict_v<Properties>) {
+            return flatten().map(detail::unit_run_functor<value_type>());
+        } else if constexpr (std::is_floating_point_v<value_type> &&
+                             !(is_boolean_v<Properties> &&
+                               is_grouped_by_value_v<Properties>)) {
+            // NaN equality is not reflexive, so it cannot be the equivalence
+            // relation required by reduce_by_key. Select adjacent run starts
+            // instead, then derive run lengths from their positions.
+            auto starts = std::make_shared<thrust::device_vector<int>>(
+              n, thrust::default_init);
+            auto indices    = thrust::make_counting_iterator(0);
+            auto starts_end = thrust::copy_if(
+              indices,
+              indices + n,
+              starts->begin(),
+              detail::run_start_predicate<Iterator>{_begin});
+            int const runs = cuda::std::distance(starts->begin(), starts_end);
+            auto result    = std::make_shared<thrust::device_vector<pair_type>>(
+              runs, thrust::default_init);
+            thrust::transform(
+              indices,
+              indices + runs,
+              result->begin(),
+              detail::run_pair_functor<Iterator, decltype(starts->begin())>{
+                _begin, starts->begin(), n, runs});
+            return fusion_array<
+              typename thrust::device_vector<pair_type>::iterator>(
+              result->begin(), result->end(), result);
+        } else if constexpr (is_boolean_v<Properties> &&
+                             is_grouped_by_value_v<Properties>) {
+            int const num_true    = thrust::count(_begin, _end, true);
+            int const num_false   = n - num_true;
+            int const result_size = int(num_false != 0) + int(num_true != 0);
+            auto
+              result_vec = std::make_shared<thrust::device_vector<pair_type>>(
+                result_size, thrust::default_init);
+            constexpr bool descending = is_descending_v<Properties>;
+            if (num_false != 0) {
+                (*result_vec)[descending ? result_size - 1 : 0] = pair_type(
+                  value_type(0), num_false);
+            }
+            if (num_true != 0) {
+                (*result_vec)[descending ? 0 : result_size - 1] = pair_type(
+                  value_type(1), num_true);
+            }
+            return fusion_array<
+              typename thrust::device_vector<pair_type>::iterator>(
+              result_vec->begin(), result_vec->end(), result_vec);
+        } else {
+            // Create a result vector to store pairs of (value, count)
+            auto
+              result_vec = std::make_shared<thrust::device_vector<pair_type>>(
+                n, thrust::default_init);
 
-        // Create a keys vector (values) and a counts vector
-        auto keys = std::make_shared<thrust::device_vector<value_type>>(
-          n, thrust::default_init);
-        auto counts = std::make_shared<thrust::device_vector<int>>(
-          n, thrust::default_init);
+            // Create a keys vector (values) and a counts vector
+            auto keys = std::make_shared<thrust::device_vector<value_type>>(
+              n, thrust::default_init);
+            auto counts = std::make_shared<thrust::device_vector<int>>(
+              n, thrust::default_init);
 
-        // Use constant_iterator for the initial counts (all 1s)
-        auto ones = cuda::make_constant_iterator(1);
+            // Use constant_iterator for the initial counts (all 1s)
+            auto ones = cuda::make_constant_iterator(1);
 
-        // Run-length encode using reduce_by_key
-        auto new_end = thrust::reduce_by_key(
-          _begin,          // Input keys begin
-          _end,            // Input keys end
-          ones,            // Input values begin (all 1s)
-          keys->begin(),   // Output keys begin
-          counts->begin()  // Output values begin
-        );
+            // Run-length encode using reduce_by_key
+            auto new_end = thrust::reduce_by_key(
+              _begin,          // Input keys begin
+              _end,            // Input keys end
+              ones,            // Input values begin (all 1s)
+              keys->begin(),   // Output keys begin
+              counts->begin()  // Output values begin
+            );
 
-        // Compute the new size after encoding
-        int result_size = cuda::std::distance(keys->begin(), new_end.first);
+            // Compute the new size after encoding
+            int result_size = cuda::std::distance(keys->begin(), new_end.first);
 
-        // Resize the output vectors
-        keys->resize(result_size);
-        counts->resize(result_size);
-        result_vec->resize(result_size);
+            // Resize the output vectors
+            keys->resize(result_size);
+            counts->resize(result_size);
+            result_vec->resize(result_size);
 
-        // Copy the keys and counts into the result vector as pairs
-        thrust::transform(thrust::make_zip_iterator(
-                            thrust::make_tuple(keys->begin(), counts->begin())),
-                          thrust::make_zip_iterator(
-                            thrust::make_tuple(keys->end(), counts->end())),
-                          result_vec->begin(),
-                          tuple_to_pair_functor<value_type>());
+            // Copy the keys and counts into the result vector as pairs
+            thrust::transform(thrust::make_zip_iterator(thrust::make_tuple(
+                                keys->begin(), counts->begin())),
+                              thrust::make_zip_iterator(
+                                thrust::make_tuple(keys->end(), counts->end())),
+                              result_vec->begin(),
+                              tuple_to_pair_functor<value_type>());
 
-        // Return a new fusion_array with the pairs
-        return fusion_array<
-          typename thrust::device_vector<pair_type>::iterator>(
-          result_vec->begin(), result_vec->end(), result_vec);
+            // Return a new fusion_array with the pairs
+            return fusion_array<
+              typename thrust::device_vector<pair_type>::iterator>(
+              result_vec->begin(), result_vec->end(), result_vec);
+        }
     }
 
     /**
@@ -2806,13 +3392,30 @@ class fusion_array {
      * operation)
      * @return A fusion_array containing a thrust::pair with first=minimum
      * and second=maximum
+     * @throws std::invalid_argument if no logical elements are present.
      */
     [[nodiscard]] auto minmax() const {
-        auto unary_op  = minmax_unary_op<value_type>();
-        auto binary_op = minmax_binary_op<value_type>();
-        auto init      = unary_op(*_begin);
+        if (size() == 0) {
+            throw std::invalid_argument("minmax requires nonempty input");
+        }
+        if constexpr (std::is_integral_v<value_type> &&
+                      is_grouped_by_value_v<Properties>) {
+            using pair_type = minmax_pair<value_type>;
+            auto result     = is_ascending_v<Properties>
+                                ? pair_type(front(), back())
+                                : pair_type(back(), front());
+            return fusion_array<cuda::constant_iterator<pair_type>,
+                                no_mask_t,
+                                scalar_properties_t<pair_type>>(result);
+        } else if constexpr (has_mask) {
+            return apply().minmax();
+        } else {
+            auto unary_op  = minmax_unary_op<value_type>();
+            auto binary_op = minmax_binary_op<value_type>();
+            auto init      = unary_op(*_begin);
 
-        return this->map(unary_op).reduce(init, binary_op);
+            return this->map(unary_op).reduce(init, binary_op);
+        }
     }
 
     /**
@@ -2951,31 +3554,35 @@ class fusion_array {
      * @param key_extractor A functor that extracts a key for comparison
      * from each element
      * @return A fusion_array containing the maximum element based on the
-     * extracted key
+     * extracted key, or an empty array for empty input. Ties select the first
+     * element. Boolean keys use a search for the first true key.
      */
     template <typename KeyExtractor>
     auto max_by_key(KeyExtractor key_extractor) const
       -> fusion_array<typename thrust::device_vector<
         typename cuda::std::iterator_traits<Iterator>::value_type>::iterator> {
-        int n = size();
+        if constexpr (has_mask) { return apply().max_by_key(key_extractor); }
 
-        if (n == 0) {
-            // Return an empty array for empty input
-            return fusion_array<Iterator>(_begin, _begin, _owned_storage);
-        }
-
-        // Create a comparator that uses the key extractor
-        auto key_comp = [key_extractor] __host__ __device__(
-                          const value_type &a, const value_type &b) {
-            return key_extractor(a) < key_extractor(b);
-        };
-
-        // Use thrust::max_element with the custom comparator
-        auto max_iter = thrust::max_element(_begin, _end, key_comp);
-
-        // Create a device vector with the maximum element directly
+        int n           = size();
         auto result_vec = std::make_shared<thrust::device_vector<value_type>>(
-          1, *max_iter);
+          n == 0 ? 0 : 1, thrust::default_init);
+
+        if (n != 0) {
+            using key_properties = default_properties_t<
+              thrust::transform_iterator<KeyExtractor, Iterator>>;
+            auto max_iter = [&] {
+                if constexpr (is_boolean_v<key_properties>) {
+                    auto found = thrust::find_if(_begin, _end, key_extractor);
+                    return found == _end ? _begin : found;
+                } else {
+                    return thrust::max_element(
+                      _begin,
+                      _end,
+                      projected_less<value_type, KeyExtractor>{key_extractor});
+                }
+            }();
+            thrust::copy_n(max_iter, 1, result_vec->begin());
+        }
 
         // Return a new fusion_array with the maximum element
         return fusion_array<
@@ -3276,17 +3883,34 @@ auto norm_cdf(const fusion_array<Iterator, MaskIterator, Properties> &arr) {
     return arr.map(NormCDFFunc());
 }
 
-// Statistical mode function - returns the most frequently occurring value
+/**
+ * @brief Return the most frequently occurring value; the smallest wins ties.
+ * @details Boolean domains use a population count instead of sorting.
+ * @throws std::invalid_argument if the input has no selected elements.
+ */
 template <typename Iterator, typename MaskIterator, typename Properties>
 auto mode(const fusion_array<Iterator, MaskIterator, Properties> &arr) {
     using value_type = typename cuda::std::iterator_traits<
       Iterator>::value_type;
 
-    // Find the mode by sorting, run-length encoding, and finding max by count
-    auto mode_value = arr.sort().rle().max_by_key(snd()).value().first;
+    int const n = arr.size();
+    if (n == 0) { throw std::invalid_argument("mode requires nonempty input"); }
 
-    // Return as a scalar fusion_array
-    return scalar(mode_value);
+    if constexpr (std::is_integral_v<value_type> &&
+                  (is_constant_v<Properties> || is_strict_v<Properties>)) {
+        auto value = is_strict_v<Properties> && is_descending_v<Properties>
+                       ? arr.back()
+                       : arr.front();
+        return scalar(value);
+    } else if constexpr (!std::is_same_v<MaskIterator, no_mask_t>) {
+        return mode(arr.apply());
+    } else if constexpr (is_boolean_v<Properties>) {
+        int const num_true = thrust::count(arr.begin(), arr.end(), true);
+        return scalar(value_type(num_true > n - num_true));
+    } else {
+        auto mode_value = arr.sort().rle().max_by_key(snd()).value().first;
+        return scalar(mode_value);
+    }
 }
 }  // namespace stats
 

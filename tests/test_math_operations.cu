@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <numbers>
 #include "parrot.hpp"
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
@@ -165,6 +166,112 @@ TEST_CASE("ParrotTest - EvenAllOddTest") {
     auto arr    = parrot::array({1, 3, 5, 7});
     auto result = arr.even().sum();
     CHECK_EQ(result.value(), 0);  // all odd, so sum of [0,0,0,0] = 0
+}
+
+namespace {
+template <typename Array>
+auto materialize_on_gpu(const Array& input) {
+    using T = typename Array::value_type;
+    thrust::device_vector<T> device(input.size());
+    thrust::copy(thrust::device, input.begin(), input.end(), device.begin());
+    thrust::host_vector<T> host = device;
+    return std::vector<T>(host.begin(), host.end());
+}
+}  // namespace
+
+TEST_CASE("ParrotTest - DrandKnownSequence") {
+    auto bounds = parrot::range(8).as<double>().times(0).add(4294967296.0);
+    auto draws  = bounds.drand();
+    std::vector<double> expected{1083814273.0,
+                                 378494188.0,
+                                 2479403867.0,
+                                 955863294.0,
+                                 1613448261.0,
+                                 110225632.0,
+                                 1921058495.0,
+                                 508781842.0};
+    CHECK(materialize_on_gpu(draws) == expected);
+    CHECK(draws.to_host() == expected);
+    CHECK(materialize_on_gpu(bounds.drand(42U)) == expected);
+    CHECK(materialize_on_gpu(draws) == expected);
+    CHECK(materialize_on_gpu(bounds.drand(1234U)) != expected);
+    CHECK(draws.storage() == nullptr);
+}
+
+TEST_CASE("ParrotTest - DrandSkipAheadAndComposition") {
+    auto bounds         = parrot::range(4097).times(0).add(100);
+    auto draws          = bounds.drand(1234U);
+    auto actual         = materialize_on_gpu(draws);
+    std::uint32_t state = 1234U;
+    for (auto value : actual) {
+        state = 1664525U * state + 1013904223U;
+        CHECK_EQ(
+          value,
+          static_cast<int>(static_cast<std::uint64_t>(state) * 100U >> 32U));
+    }
+    CHECK(materialize_on_gpu(draws.rev().take(3)) ==
+          std::vector<int>{actual[4096], actual[4095], actual[4094]});
+    CHECK(materialize_on_gpu(draws.add(1).take(3)) ==
+          std::vector<int>{actual[0] + 1, actual[1] + 1, actual[2] + 1});
+    // A high random-access index must not require a linear number of draws.
+    auto huge = parrot::range(1000000000).times(0).add(100).drand(1234U);
+    auto tail = materialize_on_gpu(huge.rev().take(1));
+    REQUIRE_EQ(tail.size(), 1);
+    CHECK_EQ(tail[0], 75);  // State at index 999999999 is 3235251922.
+}
+
+TEST_CASE("ParrotTest - DrandShapeMaskAndEmpty") {
+    auto bounds = parrot::array({100, 100, 100, 100});
+    auto matrix = bounds.reshape({2, 2}).drand();
+    CHECK(matrix.shape() == std::vector<int>{2, 2});
+    CHECK(materialize_on_gpu(matrix) == std::vector<int>{25, 8, 57, 22});
+    auto mask = parrot::array({1, 0, 1, 0});
+    CHECK(materialize_on_gpu(bounds.keep(mask).drand()) ==
+          std::vector<int>{25, 8});
+    CHECK(materialize_on_gpu(parrot::array<int>({}).drand()).empty());
+    CHECK(materialize_on_gpu(parrot::array({0, 1, 0, 1}).drand()) ==
+          std::vector<int>{0, 0, 0, 0});
+    CHECK(materialize_on_gpu(parrot::array({100, 100, 100, 100}).drand(0U)) ==
+          std::vector<int>{23, 27, 81, 66});
+}
+
+TEST_CASE("ParrotTest - DrandFullWidthIntegerBounds") {
+    auto u64   = std::numeric_limits<std::uint64_t>::max();
+    auto draws = parrot::array<std::uint64_t>({u64, u64, u64, u64}).drand();
+    CHECK(materialize_on_gpu(draws) ==
+          std::vector<std::uint64_t>{4654946857473015807ULL,
+                                     1625620159186075647ULL,
+                                     10648958522340933631ULL,
+                                     4105401587176833023ULL});
+    auto i64 = std::numeric_limits<std::int64_t>::min();
+    CHECK(
+      materialize_on_gpu(parrot::array<std::int64_t>({i64, i64}).drand()) ==
+      std::vector<std::int64_t>{-2327473428736507904LL, -812810079593037824LL});
+}
+
+TEST_CASE("ParrotTest - DrandFloatBounds") {
+    // This seed's first state is UINT32_MAX, which rounds to 1 in float32.
+    constexpr auto seed = 653637408U;
+    for (auto value : {1.0F,
+                       std::numeric_limits<float>::max(),
+                       std::numeric_limits<float>::min(),
+                       std::numeric_limits<float>::denorm_min()}) {
+        auto actual = materialize_on_gpu(
+          parrot::array<float>({value}).drand(seed));
+        REQUIRE_EQ(actual.size(), 1);
+        CHECK_EQ(actual[0], std::nextafter(value, 0.0F));
+    }
+    auto bounds   = parrot::array<float>({10.0F, 0.0F, 30.0F, 40.0F});
+    auto actual   = materialize_on_gpu(bounds.drand());
+    auto original = bounds.to_host();
+    for (std::size_t i = 0; i < actual.size(); ++i) {
+        CHECK_GE(actual[i], 0.0F);
+        if (original[i] == 0.0F) {
+            CHECK_EQ(actual[i], 0.0F);
+        } else {
+            CHECK_LT(actual[i], original[i]);
+        }
+    }
 }
 
 // Test rand with integer array
