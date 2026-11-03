@@ -18,7 +18,10 @@
 #include "parrot.hpp"
 
 int main() {
-    auto data = parrot::scalar(10).repeat(30).rand().print();
+    int n = 30; // length
+    int w = 4; // window size
+
+    auto data = parrot::scalar(10).repeat(n).rand().print();
     auto sums = data.prepend(0).sums();
-    sums.drop(4).minus(sums.take(27)).div(4.0).reshape({3, 9}).print();
+    sums.drop(w).minus(sums.take(n - w)).div(w).print();
 }

@@ -22,6 +22,7 @@ int main() {
     const size_t N    = (sizeof(data) / sizeof(char)) - 1;
     auto input        = std::vector(data, data + N);
     parrot::array(input)
+      .print()
       .rle()
       .print();  //(a, 3) (b, 5) (c, 1) (d, 2) (e, 9) (f, 2)
 }

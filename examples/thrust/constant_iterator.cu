@@ -19,7 +19,5 @@
 
 int main() {
     auto data     = parrot::array({3, 7, 2, 5});
-    auto constant = parrot::scalar(10).repeat(4);
-    data.add(constant).print();  // [13, 17, 12, 15] - first method
-    data.add(10).print();        // [13, 17, 12, 15] - better method
+    data.add(10).print(); // 13, 17, 12, 15
 }

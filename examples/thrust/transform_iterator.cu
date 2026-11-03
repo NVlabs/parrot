@@ -18,10 +18,18 @@
 #include <parrot.hpp>
 
 int main() {
-    auto values  = parrot::array({2, 5, 7, 1, 6, 0, 3, 8});
-    auto clamp   = values.max(1).min(5).print();        // 2 5 5 1 5 1 3 5
-    auto sum     = clamp.sum().print();                 // 27
-    auto iota    = parrot::range(10).minus(1).print();  // 0 1 2 3 4 5 6 7 8 9
-    auto clamp_i = iota.max(1).min(5).print();          // 1 2 3 4 5 5 5 5 5 5
-    auto negated = clamp_i.neg().print();  // -1 -2 -3 -4 -5 -5 -5 -5 -5 -5
+    // clamp values to the range [1, 5]
+    int lo = 1;
+    int hi = 5;
+
+    auto values  = parrot::array({2, 5, 7, 1, 6, 0, 3, 8}).print();
+    
+    auto cv  = values.max(lo).min(hi).print(); // 2 5 5 1 5 1 3 5
+    cv.sum().print();                          // 27
+
+    auto count = parrot::range(10).minus(1).print();  // 0 1 2 3 4 5 6 7 8 9
+    auto cs    = count.max(lo).min(hi).print();          // 1 2 3 4 5 5 5 5 5 5
+
+    auto ncs = cs.neg().print();  // -1 -2 -3 -4 -5 -5 -5 -5 -5 -5
+    auto nv = values.neg().print(); // -2 -5 -7 -1 -6 -0 -3 -8
 }
