@@ -392,8 +392,7 @@ struct min_functor {
  */
 struct min {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a, const T &b) const
-      -> decltype(a < b ? a : b) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const -> T {
         return a < b ? a : b;
     }
 };
@@ -403,8 +402,7 @@ struct min {
  */
 struct max {
     template <typename T>
-    __host__ __device__ auto operator()(const T &a, const T &b) const
-      -> decltype(a > b ? a : b) {
+    __host__ __device__ auto operator()(const T &a, const T &b) const -> T {
         return a > b ? a : b;
     }
 };
