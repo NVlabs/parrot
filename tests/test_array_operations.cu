@@ -195,8 +195,23 @@ TEST_CASE("ParrotTest - CombinedArrayAndScalarTest") {
     auto arr3      = parrot::array({15, 25, 35, 45});
     auto arr4      = parrot::array({25, 15, 40, 30});
     auto result2   = arr3.max(20).min(arr4);
-    auto expected2 = parrot::array({20, 15, 40, 30});
+    auto expected2 = parrot::array({20, 15, 35, 30});
     check_match_eq(result2, expected2);
+}
+
+// min and max return values, not references to their arguments, so lazy
+// chains that read their results do not see dangling temporaries
+TEST_CASE("ParrotTest - MinMaxChainTest") {
+    static_assert(!std::is_reference_v<decltype(parrot::min{}(1, 2))>);
+    static_assert(!std::is_reference_v<decltype(parrot::max{}(1, 2))>);
+
+    auto arr1 = parrot::array({15, 25, 35, 45});
+    auto arr2 = parrot::array({25, 15, 40, 30});
+    CHECK(check_match(arr1.max(20).add(arr2), parrot::array({45, 40, 75, 75})));
+    CHECK(
+      check_match(arr1.min(arr2).add(arr2), parrot::array({40, 30, 75, 60})));
+    CHECK(check_match(parrot::range(8).min(5).differ(),
+                      parrot::array({1, 1, 1, 1, 0, 0, 0})));
 }
 
 // Test map2 function with a custom functor
