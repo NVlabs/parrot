@@ -1100,6 +1100,16 @@ class fusion_array {
         }
     }
 
+    // Storage that keeps both this array and another operand alive
+    [[nodiscard]] auto _storage_with(const std::shared_ptr<void> &other) const
+      -> std::shared_ptr<void> {
+        if (!other) { return _owned_storage; }
+        if (!_owned_storage) { return other; }
+        return std::make_shared<
+          std::pair<std::shared_ptr<void>, std::shared_ptr<void>>>(
+          _owned_storage, other);
+    }
+
    public:
     using value_type = typename cuda::std::iterator_traits<
       Iterator>::value_type;
@@ -2441,25 +2451,31 @@ class fusion_array {
     auto keep(
       const fusion_array<MaskIteratorKeep, MaskMaskIterator, MaskProperties>
         &mask) const {
-        int n = size();
+        if constexpr (has_mask) {
+            return apply().template keep<ResultProperties>(mask);
+        } else if constexpr (!std::is_same_v<MaskMaskIterator, no_mask_t>) {
+            return keep<ResultProperties>(mask.apply());
+        } else {
+            int n = size();
 
-        // Size check - the mask must be the same size as the array
-        if (n != mask.size()) {
-            throw std::invalid_argument("Mask size must match array size");
+            // Size check - the mask must be the same size as the array
+            if (n != mask.size()) {
+                throw std::invalid_argument("Mask size must match array size");
+            }
+
+            // Keep the mask array alive to prevent iterator invalidation
+            auto mask_source = std::make_shared<
+              fusion_array<MaskIteratorKeep, MaskMaskIterator, MaskProperties>>(
+              mask);
+
+            return fusion_array<Iterator, MaskIteratorKeep, ResultProperties>(
+              _begin,
+              _end,
+              _owned_storage,
+              mask_source->begin(),
+              mask_source->end(),
+              mask_source);  // Pass mask storage to keep it alive
         }
-
-        // Keep the mask array alive to prevent iterator invalidation
-        auto mask_source = std::make_shared<
-          fusion_array<MaskIteratorKeep, MaskMaskIterator, MaskProperties>>(
-          mask);
-
-        return fusion_array<Iterator, MaskIteratorKeep, ResultProperties>(
-          _begin,
-          _end,
-          _owned_storage,
-          mask_source->begin(),
-          mask_source->end(),
-          mask_source);  // Pass mask storage to keep it alive
     }
 
     /**
@@ -2473,11 +2489,18 @@ class fusion_array {
     auto gather(
       const fusion_array<IndexIterator, IndexMaskIterator, IndexProperties>
         &indices) const {
-        auto gather_begin = thrust::make_permutation_iterator(_begin,
-                                                              indices.begin());
-        auto gather_end   = thrust::make_permutation_iterator(_begin,
-                                                            indices.end());
-        return fusion_array<decltype(gather_begin)>(gather_begin, gather_end);
+        if constexpr (has_mask) {
+            return apply().gather(indices);
+        } else if constexpr (!std::is_same_v<IndexMaskIterator, no_mask_t>) {
+            return gather(indices.apply());
+        } else {
+            auto gather_begin = thrust::make_permutation_iterator(
+              _begin, indices.begin());
+            auto gather_end = thrust::make_permutation_iterator(_begin,
+                                                                indices.end());
+            return fusion_array<decltype(gather_begin)>(
+              gather_begin, gather_end, _storage_with(indices.storage()));
+        }
     }
 
     /**
@@ -2491,11 +2514,17 @@ class fusion_array {
     auto match(
       const fusion_array<OtherIterator, OtherMaskIterator, OtherProperties>
         &other) const -> bool {
-        // Check if sizes match
-        if (size() != other.size()) { return false; }
+        if constexpr (has_mask) {
+            return apply().match(other);
+        } else if constexpr (!std::is_same_v<OtherMaskIterator, no_mask_t>) {
+            return match(other.apply());
+        } else {
+            // Check if sizes match
+            if (size() != other.size()) { return false; }
 
-        // Compare elements
-        return thrust::equal(_begin, _end, other.begin());
+            // Compare elements
+            return thrust::equal(_begin, _end, other.begin());
+        }
     }
 
     /**
@@ -2971,32 +3000,37 @@ class fusion_array {
      */
     template <typename BinPred, typename BinaryOp>
     [[nodiscard]] auto chunk_by_reduce(BinPred pred, BinaryOp binop) const {
-        int n = size();
+        if constexpr (has_mask) {
+            return apply().chunk_by_reduce(pred, binop);
+        } else {
+            int n = size();
 
-        // Create a result vector to store the reduced values
-        auto result_vec = std::make_shared<thrust::device_vector<value_type>>(
-          n, thrust::default_init);
+            // Create a result vector to store the reduced values
+            auto
+              result_vec = std::make_shared<thrust::device_vector<value_type>>(
+                n, thrust::default_init);
 
-        // Use reduce_by_key with the provided predicates
-        auto new_end = thrust::reduce_by_key(
-          _begin,
-          _end,
-          _begin,  // Values are the same as keys for reduction
-          thrust::make_discard_iterator(),
-          result_vec->begin(),
-          pred,  // Grouping predicate
-          binop  // Reduction operation
-        );
+            // Use reduce_by_key with the provided predicates
+            auto new_end = thrust::reduce_by_key(
+              _begin,
+              _end,
+              _begin,  // Values are the same as keys for reduction
+              thrust::make_discard_iterator(),
+              result_vec->begin(),
+              pred,  // Grouping predicate
+              binop  // Reduction operation
+            );
 
-        // Compute the new size after reduction
-        int result_size = cuda::std::distance(result_vec->begin(),
-                                              new_end.second);
-        result_vec->resize(result_size);
+            // Compute the new size after reduction
+            int result_size = cuda::std::distance(result_vec->begin(),
+                                                  new_end.second);
+            result_vec->resize(result_size);
 
-        // Return a new fusion_array with the reduced values
-        return fusion_array<
-          typename thrust::device_vector<value_type>::iterator>(
-          result_vec->begin(), result_vec->end(), result_vec);
+            // Return a new fusion_array with the reduced values
+            return fusion_array<
+              typename thrust::device_vector<value_type>::iterator>(
+              result_vec->begin(), result_vec->end(), result_vec);
+        }
     }
 
     /**
@@ -3010,27 +3044,32 @@ class fusion_array {
      * @see cycle
      */
     [[nodiscard]] auto reshape(std::initializer_list<int> new_shape) const {
-        int total_size = std::accumulate(
-          new_shape.begin(), new_shape.end(), 1, std::multiplies<int>());
+        if constexpr (has_mask) {
+            return apply().reshape(new_shape);
+        } else {
+            int total_size = std::accumulate(
+              new_shape.begin(), new_shape.end(), 1, std::multiplies<int>());
 
-        int current_size = size();
+            int current_size = size();
 
-        // Throw exception if either size is 0
-        if (current_size == 0 || total_size == 0) {
-            throw std::invalid_argument(
-              "reshape: current_size and total_size must be > 0");
+            // Throw exception if either size is 0
+            if (current_size == 0 || total_size == 0) {
+                throw std::invalid_argument(
+                  "reshape: current_size and total_size must be > 0");
+            }
+
+            if (total_size > current_size) {
+                throw std::invalid_argument(
+                  "reshape: total_size must be <= current_size; use cycle() "
+                  "for "
+                  "larger "
+                  "shapes");
+            }
+
+            // Create a new array with truncated view
+            return fusion_array<Iterator, no_mask_t, Properties>(
+              _begin, _begin + total_size, _owned_storage, new_shape);
         }
-
-        if (total_size > current_size) {
-            throw std::invalid_argument(
-              "reshape: total_size must be <= current_size; use cycle() for "
-              "larger "
-              "shapes");
-        }
-
-        // Create a new array with truncated view
-        return fusion_array<Iterator, no_mask_t, Properties>(
-          _begin, _begin + total_size, _owned_storage, new_shape);
     }
 
     /**
@@ -3045,26 +3084,33 @@ class fusion_array {
      * @see reshape
      */
     [[nodiscard]] auto cycle(std::initializer_list<int> new_shape) const {
-        int total_size = std::accumulate(
-          new_shape.begin(), new_shape.end(), 1, std::multiplies<int>());
+        if constexpr (has_mask) {
+            return apply().cycle(new_shape);
+        } else {
+            int total_size = std::accumulate(
+              new_shape.begin(), new_shape.end(), 1, std::multiplies<int>());
 
-        int current_size = size();
+            int current_size = size();
 
-        // Throw exception if either size is 0
-        if (current_size == 0 || total_size == 0) {
-            throw std::invalid_argument(
-              "cycle: current_size and total_size must be > 0");
+            // Throw exception if either size is 0
+            if (current_size == 0 || total_size == 0) {
+                throw std::invalid_argument(
+                  "cycle: current_size and total_size must be > 0");
+            }
+
+            // Create cycled iterators to repeat the data as needed
+            auto cycled_begin       = thrustx::make_cycle_iterator(_begin,
+                                                             current_size);
+            using result_properties = properties<Properties::domain,
+                                                 order::unknown,
+                                                 true>;
+            return fusion_array<decltype(cycled_begin),
+                                no_mask_t,
+                                result_properties>(cycled_begin,
+                                                   cycled_begin + total_size,
+                                                   _owned_storage,
+                                                   new_shape);
         }
-
-        // Create cycled iterators to repeat the data as needed
-        auto cycled_begin = thrustx::make_cycle_iterator(_begin, current_size);
-        using result_properties = properties<Properties::domain,
-                                             order::unknown,
-                                             true>;
-        return fusion_array<decltype(cycled_begin),
-                            no_mask_t,
-                            result_properties>(
-          cycled_begin, cycled_begin + total_size, _owned_storage, new_shape);
     }
 
     // ========================================================================
@@ -3184,6 +3230,8 @@ class fusion_array {
             // Apply mask first, then replicate
             auto unmasked = _apply_mask_if_needed();
             return unmasked.replicate(mask);
+        } else if constexpr (!std::is_same_v<MaskMaskIterator, no_mask_t>) {
+            return replicate(mask.apply());
         } else {
             // Note: mask values are expected to be non-negative integers
             // For unsigned integer types, this is guaranteed by the type system
@@ -3308,21 +3356,27 @@ class fusion_array {
       const fusion_array<OtherIterator, OtherMaskIterator, OtherProperties>
         &other,
       BinaryOp binary_op) const {
-        int this_size  = size();
-        int other_size = other.size();
+        if constexpr (has_mask) {
+            return apply().outer(other, binary_op);
+        } else if constexpr (!std::is_same_v<OtherMaskIterator, no_mask_t>) {
+            return outer(other.apply(), binary_op);
+        } else {
+            int this_size  = size();
+            int other_size = other.size();
 
-        if (this_size == 0 || other_size == 0) {
-            throw std::invalid_argument("outer: arrays must not be empty");
+            if (this_size == 0 || other_size == 0) {
+                throw std::invalid_argument("outer: arrays must not be empty");
+            }
+
+            auto outer_iter = thrustx::make_outer_iterator(
+              _begin, other.begin(), this_size, other_size, binary_op);
+
+            return fusion_array<decltype(outer_iter)>(
+              outer_iter,
+              outer_iter + (this_size * other_size),
+              _storage_with(other.storage()),
+              {this_size, other_size});
         }
-
-        auto outer_iter = thrustx::make_outer_iterator(
-          _begin, other.begin(), this_size, other_size, binary_op);
-
-        return fusion_array<decltype(outer_iter)>(
-          outer_iter,
-          outer_iter + (this_size * other_size),
-          _owned_storage,
-          {this_size, other_size});
     }
 
     /**
@@ -3445,15 +3499,19 @@ class fusion_array {
      * @throws std::invalid_argument if n > size() or n < 0
      */
     [[nodiscard]] auto take(int n) const {
-        if (n < 0 || n > size()) {
-            throw std::invalid_argument(
-              "take: n must be between 0 and size() inclusive");
-        }
+        if constexpr (has_mask) {
+            return apply().take(n);
+        } else {
+            if (n < 0 || n > size()) {
+                throw std::invalid_argument(
+                  "take: n must be between 0 and size() inclusive");
+            }
 
-        return fusion_array<Iterator,
-                            no_mask_t,
-                            possibly_empty_properties_t<Properties>>(
-          _begin, _begin + n, _owned_storage);
+            return fusion_array<Iterator,
+                                no_mask_t,
+                                possibly_empty_properties_t<Properties>>(
+              _begin, _begin + n, _owned_storage);
+        }
     }
 
     /**
@@ -3464,20 +3522,24 @@ class fusion_array {
      * @throws std::invalid_argument if n > size() or n < 0
      */
     [[nodiscard]] auto drop(int n) const {
-        if (n < 0 || n > size()) {
-            throw std::invalid_argument(
-              "drop: n must be between 0 and size() inclusive");
-        }
-        if (n == size()) {  // if dropping all elements, return empty array
+        if constexpr (has_mask) {
+            return apply().drop(n);
+        } else {
+            if (n < 0 || n > size()) {
+                throw std::invalid_argument(
+                  "drop: n must be between 0 and size() inclusive");
+            }
+            if (n == size()) {  // if dropping all elements, return empty array
+                return fusion_array<Iterator,
+                                    no_mask_t,
+                                    possibly_empty_properties_t<Properties>>(
+                  _end, _end, _owned_storage);
+            }
             return fusion_array<Iterator,
                                 no_mask_t,
                                 possibly_empty_properties_t<Properties>>(
-              _end, _end, _owned_storage);
+              _begin + n, _end, _owned_storage);
         }
-        return fusion_array<Iterator,
-                            no_mask_t,
-                            possibly_empty_properties_t<Properties>>(
-          _begin + n, _end, _owned_storage);
     }
 
     /**
@@ -3485,9 +3547,13 @@ class fusion_array {
      * @return A new fusion_array with the same data but flattened to 1D
      */
     [[nodiscard]] auto flatten() const {
-        std::vector<int> flat_shape = {size()};
-        return fusion_array<Iterator, no_mask_t, Properties>(
-          _begin, _end, _owned_storage, flat_shape);
+        if constexpr (has_mask) {
+            return apply().flatten();
+        } else {
+            std::vector<int> flat_shape = {size()};
+            return fusion_array<Iterator, no_mask_t, Properties>(
+              _begin, _end, _owned_storage, flat_shape);
+        }
     }
 
     /**
@@ -3624,34 +3690,40 @@ class fusion_array {
     auto pairs(
       const fusion_array<OtherIterator, OtherMaskIterator, OtherProperties>
         &other) const {
-        using first_type = typename cuda::std::iterator_traits<
-          Iterator>::value_type;
-        using second_type = typename cuda::std::iterator_traits<
-          OtherIterator>::value_type;
-        using pair_type = thrust::pair<first_type, second_type>;
+        if constexpr (has_mask) {
+            return apply().pairs(other);
+        } else if constexpr (!std::is_same_v<OtherMaskIterator, no_mask_t>) {
+            return pairs(other.apply());
+        } else {
+            using first_type = typename cuda::std::iterator_traits<
+              Iterator>::value_type;
+            using second_type = typename cuda::std::iterator_traits<
+              OtherIterator>::value_type;
+            using pair_type = thrust::pair<first_type, second_type>;
 
-        // Check if arrays have the same size
-        if (size() != other.size()) {
-            throw std::invalid_argument(
-              "Arrays must have the same size for pairs operation");
+            // Check if arrays have the same size
+            if (size() != other.size()) {
+                throw std::invalid_argument(
+                  "Arrays must have the same size for pairs operation");
+            }
+
+            // Create a zip iterator combining elements from both arrays
+            auto zip_begin = thrust::make_zip_iterator(
+              thrust::make_tuple(_begin, other.begin()));
+            auto zip_end = thrust::make_zip_iterator(
+              thrust::make_tuple(_end, other.end()));
+
+            // Define the functor type for making pairs
+            using make_pair_func = make_pair_functor<first_type, second_type>;
+
+            // Transform the zipped iterators into pairs
+            return fusion_array<
+              thrust::transform_iterator<make_pair_func, decltype(zip_begin)>>(
+              thrust::make_transform_iterator(zip_begin, make_pair_func()),
+              thrust::make_transform_iterator(zip_end, make_pair_func()),
+              _storage_with(other.storage()),
+              _shape);
         }
-
-        // Create a zip iterator combining elements from both arrays
-        auto zip_begin = thrust::make_zip_iterator(
-          thrust::make_tuple(_begin, other.begin()));
-        auto zip_end = thrust::make_zip_iterator(
-          thrust::make_tuple(_end, other.end()));
-
-        // Define the functor type for making pairs
-        using make_pair_func = make_pair_functor<first_type, second_type>;
-
-        // Transform the zipped iterators into pairs
-        return fusion_array<
-          thrust::transform_iterator<make_pair_func, decltype(zip_begin)>>(
-          thrust::make_transform_iterator(zip_begin, make_pair_func()),
-          thrust::make_transform_iterator(zip_end, make_pair_func()),
-          _owned_storage,
-          _shape);
     }
 
     /**
@@ -3690,13 +3762,18 @@ class fusion_array {
      */
     template <typename Predicate>
     auto filter(Predicate predicate) const {
-        // Create a transform_iterator that applies the predicate
-        auto mask_begin = thrust::make_transform_iterator(_begin, predicate);
-        auto mask_end   = thrust::make_transform_iterator(_end, predicate);
+        if constexpr (has_mask) {
+            return apply().filter(predicate);
+        } else {
+            // Create a transform_iterator that applies the predicate
+            auto mask_begin = thrust::make_transform_iterator(_begin,
+                                                              predicate);
+            auto mask_end   = thrust::make_transform_iterator(_end, predicate);
 
-        // Use existing keep function with the mask iterator
-        return keep(fusion_array<decltype(mask_begin)>(
-          mask_begin, mask_end, _owned_storage));
+            // Use existing keep function with the mask iterator
+            return keep(fusion_array<decltype(mask_begin)>(
+              mask_begin, mask_end, _owned_storage));
+        }
     }
 
     /**
