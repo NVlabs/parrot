@@ -21,7 +21,6 @@
 #include <cuda_runtime.h>
 #include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/iterator/permutation_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_segmented_reduce.cuh>
@@ -93,15 +92,7 @@ void reduce_by_n_impl(InputIterator first,
     cudaFree(d_temp_storage);
 }
 
-// Cycle functor for cycling through indices
-struct cycle_functor {
-    int n;
-    explicit cycle_functor(int n) : n(n) {}
-    __host__ __device__ auto operator()(int i) const -> int { return i % n; }
-};
-
 // Direct cycle functor that avoids permutation iterator overhead
-// (renamed from direct_cycle_functor to cycle_functor as requested)
 template <typename Iterator>
 struct direct_cycle_functor {
     Iterator begin;
@@ -122,15 +113,6 @@ auto make_cycle_iterator(Iterator begin, int n) {
     auto counting = thrust::make_counting_iterator<int>(0);
     return thrust::make_transform_iterator(
       counting, direct_cycle_functor<Iterator>(begin, n));
-}
-
-// Legacy helper function to create a cycle iterator (compatible with old code)
-// This creates a permutation iterator like the original implementation
-template <typename Iterator>
-auto make_cycle_iterator_permutation(Iterator begin, int n) {
-    auto a = thrust::make_counting_iterator<int>(0);
-    auto b = thrust::make_transform_iterator(a, cycle_functor(n));
-    return thrust::make_permutation_iterator(begin, b);
 }
 
 // Helper function to create a cycle functor
