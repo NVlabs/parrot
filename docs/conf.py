@@ -206,6 +206,6 @@ XML_PROGRAMLISTING     = YES
 JAVADOC_AUTOBRIEF      = YES
 BRIEF_MEMBER_DESC      = YES
 REPEAT_BRIEF           = YES
-EXCLUDE_SYMBOLS        = parrot::add_functor parrot::append_functor parrot::delta parrot::neq parrot::double_functor parrot::min_functor parrot::times_functor
+EXCLUDE_SYMBOLS        = parrot::add_functor parrot::append_functor parrot::delta parrot::neq parrot::double_functor
 """,
 }
