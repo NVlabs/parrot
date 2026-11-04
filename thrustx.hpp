@@ -115,12 +115,6 @@ auto make_cycle_iterator(Iterator begin, int n) {
       counting, direct_cycle_functor<Iterator>(begin, n));
 }
 
-// Helper function to create a cycle functor
-template <typename Iterator>
-auto make_cycle_functor(Iterator begin, int n) {
-    return direct_cycle_functor<Iterator>(begin, n);
-}
-
 // Chain functor template for append operations
 template <typename Iterator, typename T>
 struct append_functor {
@@ -152,18 +146,6 @@ struct prepend_functor {
         return _begin[idx - 1];
     }
 };
-
-// Helper function to create an append functor
-template <typename Iterator, typename T>
-auto make_append_functor(Iterator begin, int size, T value) {
-    return append_functor<Iterator, T>(begin, size, value);
-}
-
-// Helper function to create a prepend functor
-template <typename Iterator, typename T>
-auto make_prepend_functor(Iterator begin, int size, T value) {
-    return prepend_functor<Iterator, T>(begin, size, value);
-}
 
 // Helper function to create an append iterator
 template <typename Iterator, typename T>
@@ -199,14 +181,6 @@ struct replicate_functor {
         return _begin[idx / _n];
     }
 };
-
-// Helper function to create a replicate functor
-template <typename Iterator>
-auto make_replicate_functor(Iterator begin, int n) {
-    using value_type = typename cuda::std::iterator_traits<
-      Iterator>::value_type;
-    return replicate_functor<Iterator, value_type>(begin, n);
-}
 
 // Helper function to create a replicate iterator
 template <typename Iterator>

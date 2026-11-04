@@ -42,7 +42,6 @@
 #include <thrust/tuple.h>
 #include <thrust/zip_function.h>
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <ctime>
@@ -296,31 +295,6 @@ struct is_thrust_pair<thrust::pair<T1, T2>> : std::true_type {};
 template <typename T>
 inline constexpr bool is_thrust_pair_v = is_thrust_pair<T>::value;
 
-// Helper function to check if T is a fusion_array (fallback for older
-// compilers)
-template <typename T>
-constexpr auto is_fusion_array_func() -> bool {
-    return is_fusion_array<T>::value;
-}
-
-// First element of a pair
-template <typename T, typename U>
-struct fst_functor {
-    __host__ __device__ auto operator()(const thrust::pair<T, U> &p) const
-      -> T {
-        return p.first;
-    }
-};
-
-// Second element of a pair
-template <typename T, typename U>
-struct snd_functor {
-    __host__ __device__ auto operator()(const thrust::pair<T, U> &p) const
-      -> U {
-        return p.second;
-    }
-};
-
 /**
  * @brief Function object to extract the first element of a pair
  */
@@ -345,17 +319,6 @@ struct snd {
 
 // Function objects for transformations
 template <typename T>
-struct times_functor {
-    T scalar;
-
-    explicit times_functor(T s) : scalar(s) {}
-
-    __host__ __device__ auto operator()(const T &x) const -> T {
-        return x * scalar;
-    }
-};
-
-template <typename T>
 struct add_functor {
     T scalar;
 
@@ -372,18 +335,6 @@ struct delta {
     __host__ __device__ auto operator()(const T &a, const T &b) const
       -> decltype(b - a) {
         return b - a;
-    }
-};
-
-// Min functor for elementwise minimum
-template <typename T>
-struct min_functor {
-    T scalar;
-
-    explicit min_functor(T s) : scalar(s) {}
-
-    __host__ __device__ auto operator()(const T &x) const -> T {
-        return x < scalar ? x : scalar;
     }
 };
 
@@ -656,55 +607,6 @@ struct cast_functor {
     }
 };
 
-// Random number generator struct
-struct rnd {
-    float a, b;
-    unsigned int seed;
-
-#ifndef __CUDA_ARCH__
-    static std::atomic<unsigned int> global_counter;
-#endif
-
-    __host__ __device__ explicit rnd(float _a = 0.F, float _b = 1.F)
-      : a(_a), b(_b) {
-#ifndef __CUDA_ARCH__
-        // Use a true entropy source when available
-        std::random_device rd;
-        // Mix entropy sources: random_device + timestamp + counter + address
-        auto timestamp = static_cast<unsigned int>(time(nullptr));
-        unsigned int const counter_val = global_counter.fetch_add(
-          1, std::memory_order_relaxed);
-        // Mix multiple entropy sources using XOR and rotation
-        auto tmp = reinterpret_cast<uintptr_t>(this);  // NOLINT
-        seed     = rd() ^ (timestamp << 16 | timestamp >> 16) ^
-               (counter_val * 2654435761U) ^
-               static_cast<unsigned int>(tmp & 0xFFFFFFFF);
-#else
-        // On device, mix thread/block IDs with a base seed
-        unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
-        seed             = 42U + tid + clock();
-#endif
-    }
-
-    __host__ __device__ auto operator()(const unsigned int n) const -> float {
-        // Use multiple mixing steps for better statistical properties
-        auto h1 = seed + n;
-        h1      = ((h1 >> 16) ^ h1) * 0x45d9f3b;
-        h1      = ((h1 >> 16) ^ h1) * 0x45d9f3b;
-        h1      = (h1 >> 16) ^ h1;
-
-        thrust::default_random_engine rng(
-          static_cast<thrust::default_random_engine::result_type>(h1));
-        thrust::uniform_real_distribution<float> dist(a, b);
-        return dist(rng);
-    }
-};
-
-#ifndef __CUDA_ARCH__
-// Initialize atomic counter
-std::atomic<unsigned int> rnd::global_counter(0);  // NOLINT
-#endif
-
 // Random value functor (uses element index to generate random number, then
 // scales by element value)
 template <typename T>
@@ -893,20 +795,6 @@ struct transpose_functor {
     __host__ __device__ auto operator()(int idx_new_linear) const -> int {
         return (idx_new_linear % num_rows_orig) * num_cols_orig +
                (idx_new_linear / num_rows_orig);
-    }
-};
-
-// Pair operation functor for applying binary operations to pairs
-template <typename BinaryOp>
-struct pair_op_functor {
-    BinaryOp binary_op;
-
-    explicit pair_op_functor(BinaryOp op) : binary_op(op) {}
-
-    template <typename T1, typename T2>
-    __host__ __device__ auto operator()(const thrust::pair<T1, T2> &pair) const
-      -> decltype(binary_op(pair.first, pair.second)) {
-        return binary_op(pair.first, pair.second);
     }
 };
 
