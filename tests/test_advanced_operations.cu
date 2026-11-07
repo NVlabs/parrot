@@ -201,6 +201,68 @@ TEST_CASE("ParrotTest - MaskedElementwiseTest") {
     CHECK(check_match(zeros.rand(), parrot::array({0, 0})));
 }
 
+// Structural operations on keep() results also see only the kept elements,
+// whether the masked array is the receiver or the argument
+TEST_CASE("ParrotTest - MaskedStructuralTest") {
+    auto arr  = parrot::array({1, 2, 3, 4, 5});
+    auto mask = parrot::array({1, 0, 1, 1, 0});
+    auto kept = arr.keep(mask);  // {1, 3, 4}
+
+    CHECK(check_match(kept.take(2), parrot::array({1, 3})));
+    CHECK(check_match(kept.drop(1), parrot::array({3, 4})));
+    CHECK(check_match(kept.cycle({5}), parrot::array({1, 3, 4, 1, 3})));
+    CHECK(check_match(kept.reshape({3, 1}), parrot::array({1, 3, 4})));
+    CHECK(check_match(kept.flatten(), parrot::array({1, 3, 4})));
+    CHECK(
+      check_match(kept.keep(parrot::array({1, 0, 1})), parrot::array({1, 4})));
+    CHECK(
+      check_match(kept.filter([] __host__ __device__(int x) { return x > 1; }),
+                  parrot::array({3, 4})));
+    CHECK(
+      check_match(kept.gather(parrot::array({2, 0})), parrot::array({4, 1})));
+    CHECK(kept.match(parrot::array({1, 3, 4})));
+    CHECK(parrot::array({1, 3, 4}).match(kept));
+    CHECK(check_match(kept.enumerate().map(parrot::fst{}),
+                      parrot::array({1, 3, 4})));
+    CHECK(check_match(parrot::array({7, 8, 9}).pairs(kept).map(parrot::snd{}),
+                      parrot::array({1, 3, 4})));
+    CHECK(check_match(kept.outer(parrot::array({1, 10}), parrot::mul{}),
+                      parrot::array({1, 10, 3, 30, 4, 40})));
+    CHECK(check_match(parrot::array({1, 10}).outer(kept, parrot::mul{}),
+                      parrot::array({1, 3, 4, 10, 30, 40})));
+    CHECK(check_match(parrot::array({1, 2}).cross(kept).map(parrot::snd{}),
+                      parrot::array({1, 3, 4, 1, 3, 4})));
+    CHECK(check_match(
+      parrot::array({10, 20, 30})
+        .gather(parrot::array({0, 1, 2}).keep(parrot::array({1, 0, 1}))),
+      parrot::array({10, 30})));
+
+    auto runs = parrot::array({2, 9, 2, 3, 3})
+                  .keep(parrot::array({1, 0, 1, 1, 1}));  // {2, 2, 3, 3}
+    CHECK(check_match(runs.chunk_by_reduce(parrot::eq{}, parrot::add{}),
+                      parrot::array({4, 6})));
+
+    auto counts = parrot::array({0, 1, 0, 2, 5})
+                    .keep(parrot::array({0, 1, 1, 1, 0}));  // {1, 0, 2}
+    CHECK(check_match(parrot::array({1, 2, 3}).replicate(counts),
+                      parrot::array({1, 3, 3})));
+}
+
+// Lazy results keep temporary operands alive
+TEST_CASE("ParrotTest - TemporaryOperandLifetimeTest") {
+    auto arr      = parrot::array({1, 2, 3});
+    auto gathered = parrot::array({7, 8, 9}).gather(parrot::array({2, 0}));
+    auto paired   = arr.pairs(parrot::array({10, 20, 30}));
+    auto outer    = arr.outer(parrot::array({10, 20}), parrot::add{});
+    auto crossed  = arr.cross(parrot::array({10, 20}));
+
+    CHECK(check_match(gathered, parrot::array({9, 7})));
+    CHECK(check_match(paired.map(parrot::snd{}), parrot::array({10, 20, 30})));
+    CHECK(check_match(outer, parrot::array({11, 21, 12, 22, 13, 23})));
+    CHECK(check_match(crossed.map(parrot::snd{}),
+                      parrot::array({10, 20, 10, 20, 10, 20})));
+}
+
 // Test rev function
 TEST_CASE("ParrotTest - RevTest") {
     auto arr      = parrot::array({1, 2, 3, 4, 5});
