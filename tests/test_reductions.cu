@@ -16,6 +16,7 @@
  */
 
 #include <limits>
+#include <type_traits>
 #include "parrot.hpp"
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "test_common.hpp"
@@ -204,6 +205,38 @@ TEST_CASE("ParrotTest - StatsModeNegativeTest") {
     auto result = parrot::stats::mode(arr);
     CHECK_EQ(result.value(), -1);  // -1 appears most frequently (3 times)
 }
+
+// A keep mask selects elements, so its values must not scale them
+TEST_CASE("ParrotTest - MaskedSumTest") {
+    auto arr = parrot::array({1, 2, 3});
+    CHECK_EQ(arr.keep(parrot::array({2, 0, 3})).sum().value(), 4);
+    CHECK_EQ(arr.keep(parrot::array({-1, 0, 1})).sum().value(), 4);
+
+    auto fractional = parrot::array({1.5, 2.5}).keep(parrot::array({0.5, 0.0}));
+    CHECK_EQ(fractional.sum().value(), 1.5);
+    CHECK_EQ(fractional.sum().value(), fractional.apply().sum().value());
+
+    // An excluded NaN or infinity does not reach the sum, a kept one does
+    double const inf     = std::numeric_limits<double>::infinity();
+    double const nan_val = std::numeric_limits<double>::quiet_NaN();
+    auto first           = parrot::array({1, 0});
+    auto second          = parrot::array({0, 1});
+    CHECK_EQ(parrot::array({1.0, inf}).keep(first).sum().value(), 1.0);
+    CHECK_EQ(parrot::array({1.0, -inf}).keep(first).sum().value(), 1.0);
+    CHECK_EQ(parrot::array({1.0, nan_val}).keep(first).sum().value(), 1.0);
+    CHECK_EQ(parrot::array({1.0, inf}).keep(second).sum().value(), inf);
+    CHECK(std::isnan(parrot::array({1.0, nan_val}).keep(second).sum().value()));
+
+    // The result type follows the values, whatever the mask's type is
+    auto wide_mask = parrot::array({1.0, 0.0, 1.0});
+    CHECK((std::is_same_v<decltype(arr.keep(wide_mask).sum().value()), int>));
+    CHECK_EQ(arr.keep(wide_mask).sum().value(), 4);
+
+    // Boolean data still counts the kept true values
+    auto flags = arr.gt(1);
+    CHECK_EQ(flags.keep(parrot::array({2, 0, 3})).sum().value(), 1);
+}
+
 __global__ void fill_stream_input(int *values, int offset) {
     int i = threadIdx.x;
     if (i < 8) { values[i] = i + offset; }
