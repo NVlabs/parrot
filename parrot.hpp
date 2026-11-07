@@ -833,6 +833,17 @@ struct run_pair_functor {
     }
 };
 
+// Keeps value where the mask selects it and yields 0 elsewhere. The mask is a
+// predicate, not a factor, so an excluded NaN or infinity cannot reach a sum.
+struct masked_value {
+    template <typename Mask, typename Value>
+    __host__ __device__ auto operator()(const Mask &mask,
+                                        const Value &value) const
+      -> decltype(1 * value) {
+        return mask != 0 ? value : 0;
+    }
+};
+
 template <typename Value>
 struct constant_truth_scan_functor {
     Value first;
@@ -2092,11 +2103,9 @@ class fusion_array {
               properties<domain::zero, order::constant, true>>(result_value(0));
         } else if constexpr (has_mask) {
             // Zero out masked elements and sum (no materialization)
-            if constexpr (is_boolean_v<Properties>) {
-                return (_mask().neq(0) * _data()).template sum<Axis>();
-            } else {
-                return (_mask() * _data()).template sum<Axis>();
-            }
+            return _mask()
+              .map2(_data(), detail::masked_value{})
+              .template sum<Axis>();
         } else if constexpr (std::is_same_v<value_type, bool>) {
             return as<int>().template sum<Axis>();
         } else {
