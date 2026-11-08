@@ -2194,21 +2194,10 @@ class fusion_array {
 
     /**
      * @brief Get the first value (useful for extracting reduction results)
-     * @return The first value in the array, properly handling thrust pairs
+     * @return A copy of the first selected value, which stays valid after the
+     * array is destroyed
      */
-    [[nodiscard]] auto value() const {
-        if constexpr (is_thrust_pair_v<value_type>) {
-            // For thrust pairs, explicitly copy device_reference to host pair
-            using pair_type = typename cuda::std::iterator_traits<
-              Iterator>::value_type;
-            thrust::pair<typename pair_type::first_type,
-                         typename pair_type::second_type>
-              host_pair = *_begin;
-            return host_pair;
-        } else {
-            return *_begin;
-        }
-    }
+    [[nodiscard]] auto value() const { return front(); }
 
     /**
      * @brief Get the first element of the array
