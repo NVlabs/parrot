@@ -229,3 +229,24 @@ TEST_CASE("ParrotTest - ValueReturnTypeTest") {
     CHECK((std::is_same_v<decltype(arr.pairs(arr).value()),
                           thrust::pair<int, int>>));
 }
+
+// A rank-0 operand broadcasts to the size of the other operand, including an
+// empty one, so the result reads no elements of either
+TEST_CASE("ParrotTest - ScalarBroadcastEmptyTest") {
+    auto empty = parrot::array({10}).deltas();
+    REQUIRE_EQ(empty.size(), 0);
+    auto top = empty.maxr();
+
+    auto left  = top == empty;
+    auto right = empty == top;
+    CHECK_EQ(left.size(), 0);
+    CHECK_EQ(right.size(), 0);
+    CHECK_EQ(left.sum().value(), 0);
+    CHECK_EQ(right.sum().value(), 0);
+
+    auto nums = parrot::array({3, 6, 9, 1});
+    auto d    = nums.sort().deltas();
+    CHECK_EQ((d.maxr() == d).size(), 3);
+    CHECK_EQ((d.maxr() == d).sum().value(), 2);
+    CHECK_EQ((d.maxr() + d.maxr()).value(), 6);
+}
