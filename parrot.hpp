@@ -1206,7 +1206,9 @@ class fusion_array {
                   std::to_string(size()) + " " + std::to_string(value.size()));
             }
 
-            auto const n = std::max(size(), value.size());
+            // A rank-0 operand broadcasts to the other operand's size, which
+            // may be 0, so the zip never reads past the end of either range
+            auto const n = rank() == 0 ? value.size() : size();
             // Prioritize higher-dimensional arrays to preserve shape
             // information. If ranks are equal, prefer the larger array by size
             auto const result_shape = (rank() < value.rank()) ||
