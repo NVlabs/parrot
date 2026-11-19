@@ -833,6 +833,17 @@ struct run_pair_functor {
     }
 };
 
+// Keeps value where the mask selects it and yields 0 elsewhere. The mask is a
+// predicate, not a factor, so an excluded NaN or infinity cannot reach a sum.
+struct masked_value {
+    template <typename Mask, typename Value>
+    __host__ __device__ auto operator()(const Mask &mask,
+                                        const Value &value) const
+      -> decltype(1 * value) {
+        return mask != 0 ? value : 0;
+    }
+};
+
 template <typename Value>
 struct constant_truth_scan_functor {
     Value first;
@@ -1195,7 +1206,9 @@ class fusion_array {
                   std::to_string(size()) + " " + std::to_string(value.size()));
             }
 
-            auto const n = std::max(size(), value.size());
+            // A rank-0 operand broadcasts to the other operand's size, which
+            // may be 0, so the zip never reads past the end of either range
+            auto const n = rank() == 0 ? value.size() : size();
             // Prioritize higher-dimensional arrays to preserve shape
             // information. If ranks are equal, prefer the larger array by size
             auto const result_shape = (rank() < value.rank()) ||
@@ -2092,11 +2105,9 @@ class fusion_array {
               properties<domain::zero, order::constant, true>>(result_value(0));
         } else if constexpr (has_mask) {
             // Zero out masked elements and sum (no materialization)
-            if constexpr (is_boolean_v<Properties>) {
-                return (_mask().neq(0) * _data()).template sum<Axis>();
-            } else {
-                return (_mask() * _data()).template sum<Axis>();
-            }
+            return _mask()
+              .map2(_data(), detail::masked_value{})
+              .template sum<Axis>();
         } else if constexpr (std::is_same_v<value_type, bool>) {
             return as<int>().template sum<Axis>();
         } else {
@@ -2185,21 +2196,10 @@ class fusion_array {
 
     /**
      * @brief Get the first value (useful for extracting reduction results)
-     * @return The first value in the array, properly handling thrust pairs
+     * @return A copy of the first selected value, which stays valid after the
+     * array is destroyed
      */
-    [[nodiscard]] auto value() const {
-        if constexpr (is_thrust_pair_v<value_type>) {
-            // For thrust pairs, explicitly copy device_reference to host pair
-            using pair_type = typename cuda::std::iterator_traits<
-              Iterator>::value_type;
-            thrust::pair<typename pair_type::first_type,
-                         typename pair_type::second_type>
-              host_pair = *_begin;
-            return host_pair;
-        } else {
-            return *_begin;
-        }
-    }
+    [[nodiscard]] auto value() const { return front(); }
 
     /**
      * @brief Get the first element of the array

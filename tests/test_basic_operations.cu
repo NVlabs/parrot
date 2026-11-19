@@ -16,6 +16,7 @@
  */
 
 #include <stdexcept>
+#include <type_traits>
 #include "parrot.hpp"
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "test_common.hpp"
@@ -192,4 +193,60 @@ TEST_CASE("ParrotTest - WhereMapPlus0Test") {
     auto expected = parrot::array({1, 3});
     check_match_eq(result, expected);
     check_match_eq(result2, expected);
+}
+
+// value() honors the mask, like front()
+TEST_CASE("ParrotTest - MaskedValueTest") {
+    auto arr  = parrot::array({10, 20, 30});
+    auto kept = arr.keep(parrot::array({0, 1, 1}));
+    CHECK_EQ(kept.value(), 20);
+    CHECK_EQ(kept.value(), kept.front());
+
+    auto pairs     = parrot::array({5, 6}).pairs(parrot::array({7, 8}));
+    auto kept_pair = pairs.keep(parrot::array({0, 1}));
+    CHECK_EQ(kept_pair.value().first, 6);
+    CHECK_EQ(kept_pair.value().second, 8);
+
+    auto none = arr.keep(parrot::array({0, 0, 0}));
+    CHECK_THROWS_AS((void)none.value(), std::invalid_argument);
+}
+
+// value() copies out of device storage, so the result outlives a temporary
+// array, and rank-0 reductions keep their result types
+TEST_CASE("ParrotTest - ValueReturnTypeTest") {
+    auto arr  = parrot::array({10, 20, 30});
+    auto kept = arr.keep(parrot::array({0, 1, 1}));
+    CHECK_EQ(arr.value(), 10);
+    CHECK((std::is_same_v<decltype(arr.value()), int>));
+    CHECK((std::is_same_v<decltype(arr.sums().value()), int>));
+    CHECK((std::is_same_v<decltype(kept.value()), int>));
+
+    auto dbl = parrot::array({1.5, 2.5});
+    CHECK((std::is_same_v<decltype(arr.sum().value()), int>));
+    CHECK((std::is_same_v<decltype(arr.any().value()), int>));
+    CHECK((std::is_same_v<decltype(dbl.sum().value()), double>));
+    CHECK((std::is_same_v<decltype(dbl.maxr().value()), double>));
+    CHECK((std::is_same_v<decltype(arr.pairs(arr).value()),
+                          thrust::pair<int, int>>));
+}
+
+// A rank-0 operand broadcasts to the size of the other operand, including an
+// empty one, so the result reads no elements of either
+TEST_CASE("ParrotTest - ScalarBroadcastEmptyTest") {
+    auto empty = parrot::array({10}).deltas();
+    REQUIRE_EQ(empty.size(), 0);
+    auto top = empty.maxr();
+
+    auto left  = top == empty;
+    auto right = empty == top;
+    CHECK_EQ(left.size(), 0);
+    CHECK_EQ(right.size(), 0);
+    CHECK_EQ(left.sum().value(), 0);
+    CHECK_EQ(right.sum().value(), 0);
+
+    auto nums = parrot::array({3, 6, 9, 1});
+    auto d    = nums.sort().deltas();
+    CHECK_EQ((d.maxr() == d).size(), 3);
+    CHECK_EQ((d.maxr() == d).sum().value(), 2);
+    CHECK_EQ((d.maxr() + d.maxr()).value(), 6);
 }
