@@ -18,6 +18,7 @@
 #include "parrot.hpp"
 
 int main() {
-    auto data = parrot::scalar(89).add(10).repeat(10).rand().print();
+    int N = 10;
+    auto data = parrot::scalar(89).repeat(N).rand().add(10).print();
     data.minmax().print();
 }
