@@ -25,7 +25,7 @@ TEST_CASE("Masked reverse reverses data and selection without eager work") {
     auto values = parrot::array({0, 2, 0, 4});
     auto source = values.map(test_detail::observed_value{counters.data()});
     auto mask   = parrot::array({0, 2, 0, -1})
-                    .map(test_detail::observed_mask{counters.data()});
+                  .map(test_detail::observed_mask{counters.data()});
     auto result = source.keep(mask).rev();
 
     CHECK_EQ(counters.get(0), 0);
