@@ -3713,13 +3713,19 @@ class fusion_array {
     /**
      * @brief Reverse the array (lazy operation)
      * @return A new fusion_array with elements in reverse order
+     * @details Pending selections reverse both their data and mask iterators;
+     * no selected-value buffer or mask count is needed to construct the view.
      */
     [[nodiscard]] auto rev() const {
+        auto rbegin = thrust::make_reverse_iterator(_end);
+        auto rend   = thrust::make_reverse_iterator(_begin);
         if constexpr (has_mask) {
-            return apply().rev();
+            return _defer_masked_result<reversed_properties_t<Properties>>(
+              rbegin,
+              rend,
+              thrust::make_reverse_iterator(_mask_range.second),
+              thrust::make_reverse_iterator(_mask_range.first));
         } else {
-            auto rbegin = thrust::make_reverse_iterator(_end);
-            auto rend   = thrust::make_reverse_iterator(_begin);
             return fusion_array<decltype(rbegin),
                                 no_mask_t,
                                 reversed_properties_t<Properties>>(
