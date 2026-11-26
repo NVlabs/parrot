@@ -971,20 +971,22 @@ class fusion_array {
     // Helper to check if this is a masked array
     static constexpr bool has_mask = !std::is_same_v<MaskIterator, no_mask_t>;
 
+    // Unmasked specializations do not use this helper.
     template <typename ResultProperties,
               typename ResultIterator,
               typename ResultMaskIterator>
-    [[nodiscard]] auto _defer_masked_result(ResultIterator begin,
-                                            ResultIterator end,
-                                            ResultMaskIterator mask_begin,
-                                            ResultMaskIterator mask_end) const {
+    [[maybe_unused]] [[nodiscard]] auto _defer_masked_result(
+      ResultIterator result_begin,
+      ResultIterator result_end,
+      ResultMaskIterator mask_begin,
+      ResultMaskIterator mask_end) const {
         static_assert(has_mask);
         auto deferred_begin = detail::defer_compaction(mask_begin);
         auto deferred_end   = detail::defer_compaction(mask_end);
         return fusion_array<ResultIterator,
                             decltype(deferred_begin),
-                            ResultProperties>(begin,
-                                              end,
+                            ResultProperties>(result_begin,
+                                              result_end,
                                               _owned_storage,
                                               deferred_begin,
                                               deferred_end,
@@ -1023,19 +1025,6 @@ class fusion_array {
                             no_mask_t,
                             result_properties>(
           result_begin, result_begin + n, nullptr, result_shape);
-    }
-
-    // Helper to get unmasked data as a fusion_array
-    [[nodiscard]] auto _data() const {
-        return fusion_array<Iterator, no_mask_t, Properties>(
-          _begin, _end, _owned_storage);
-    }
-
-    // Helper to get mask as a fusion_array (only valid when has_mask)
-    [[nodiscard]] auto _mask() const {
-        static_assert(has_mask, "_mask() requires a masked array");
-        return fusion_array<MaskIterator, no_mask_t>(
-          _mask_range.first, _mask_range.second, _mask_storage);
     }
 
     // Helper to apply mask for eager operations
@@ -2197,14 +2186,15 @@ class fusion_array {
             // Test the mask before reading a value: a mapped producer may only
             // be defined at selected positions. No selected-value buffer or
             // mask count is needed for this reduction.
-            auto indices = thrust::make_counting_iterator(0);
-            auto begin   = thrust::make_transform_iterator(
+            auto indices        = thrust::make_counting_iterator(0);
+            auto selected_begin = thrust::make_transform_iterator(
               indices,
               detail::selected_sum_value<Iterator, MaskIterator, result_value>{
                 _begin, _mask_range.first});
-            auto end = begin + cuda::std::distance(_begin, _end);
-            return fusion_array<decltype(begin)>(
-                     begin, end, _storage_with(_mask_storage))
+            auto selected_end = selected_begin +
+                                cuda::std::distance(_begin, _end);
+            return fusion_array<decltype(selected_begin)>(
+                     selected_begin, selected_end, _storage_with(_mask_storage))
               .template sum<Axis>();
         } else if constexpr (std::is_same_v<value_type, bool>) {
             return as<int>().template sum<Axis>();
