@@ -18,6 +18,7 @@
 #pragma once
 
 #include <doctest/doctest.h>  // Using the correct path
+#include <thrust/fill.h>
 #include <thrust/functional.h>
 #include <thrust/pair.h>
 #include <cmath>  // Include for std::abs and doctest::Approx
@@ -61,3 +62,41 @@ auto check_match_eq(const T1& result, const T2& expected) {
         CHECK_EQ(result_host[i], expected_host[i]);
     }
 }
+
+namespace test_detail {
+
+// Device observations distinguish deferred construction from value-only tests.
+struct evaluation_counters {
+    thrust::device_vector<int> values;
+
+    evaluation_counters() : values(3, 0) {}
+
+    auto data() -> int* { return thrust::raw_pointer_cast(values.data()); }
+    auto get(int index) const -> int { return values[index]; }
+    void reset() { thrust::fill(values.begin(), values.end(), 0); }
+};
+
+struct observed_value {
+    int* counters;
+
+    __host__ __device__ auto operator()(int value) const -> int {
+#ifdef __CUDA_ARCH__
+        atomicAdd(counters, 1);
+        if (value == 0) { atomicAdd(counters + 1, 1); }
+#endif
+        return value == 0 ? -1 : 100 / value;
+    }
+};
+
+struct observed_mask {
+    int* counters;
+
+    __host__ __device__ auto operator()(int value) const -> bool {
+#ifdef __CUDA_ARCH__
+        atomicAdd(counters + 2, 1);
+#endif
+        return value != 0;
+    }
+};
+
+}  // namespace test_detail

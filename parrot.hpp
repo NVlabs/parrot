@@ -28,9 +28,11 @@
 #include <thrust/host_vector.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
+#include <thrust/iterator/iterator_adaptor.h>
 #include <thrust/iterator/permutation_iterator.h>
 #include <thrust/iterator/reverse_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
+#include <thrust/iterator/transform_output_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/pair.h>
 #include <thrust/partition.h>
@@ -800,11 +802,83 @@ struct transpose_functor {
 
 namespace detail {
 
+// Marks a selection retained across an operation that previously compacted.
+// In particular, sum must retain that operation's unmasked accumulator type.
+template <typename Iterator>
+class deferred_compaction_iterator
+  : public thrust::iterator_adaptor<deferred_compaction_iterator<Iterator>,
+                                    Iterator> {
+    using base_type = thrust::
+      iterator_adaptor<deferred_compaction_iterator<Iterator>, Iterator>;
+
+   public:
+    __host__ __device__ deferred_compaction_iterator() = default;
+    __host__ __device__ explicit deferred_compaction_iterator(Iterator iterator)
+      : base_type(iterator) {}
+};
+
+template <typename Iterator>
+inline constexpr bool is_deferred_compaction_v = false;
+
+template <typename Iterator>
+inline constexpr bool
+  is_deferred_compaction_v<deferred_compaction_iterator<Iterator>> = true;
+
+template <typename Iterator>
+auto defer_compaction(Iterator iterator) {
+    if constexpr (is_deferred_compaction_v<Iterator>) {
+        return iterator;
+    } else {
+        return deferred_compaction_iterator<Iterator>(iterator);
+    }
+}
+
+template <typename Value, bool PromoteMasked>
+struct sum_value_type {
+    using type = std::conditional_t<std::is_same_v<Value, bool>, int, Value>;
+};
+
+template <typename Value>
+struct sum_value_type<Value, true> {
+    using type = decltype(1 * Value{});
+};
+
+template <typename Iterator>
+struct selected_value {
+    Iterator begin;
+
+    __host__ __device__ auto operator()(int index) const ->
+      typename cuda::std::iterator_traits<Iterator>::value_type {
+        return begin[index];
+    }
+};
+
+template <typename Iterator, typename MaskIterator, typename Value>
+struct selected_sum_value {
+    Iterator begin;
+    MaskIterator mask;
+
+    __host__ __device__ auto operator()(int index) const -> Value {
+        return mask[index] != 0 ? static_cast<Value>(begin[index]) : Value(0);
+    }
+};
+
 template <typename Value>
 struct unit_run_functor {
     __host__ __device__ auto operator()(Value value) const
       -> thrust::pair<Value, int> {
         return {value, 1};
+    }
+};
+
+template <typename Iterator, typename MaskIterator, typename Predicate>
+struct selected_predicate {
+    Iterator begin;
+    MaskIterator mask;
+    Predicate predicate;
+
+    __host__ __device__ auto operator()(int index) const -> bool {
+        return mask[index] != 0 && static_cast<bool>(predicate(begin[index]));
     }
 };
 
@@ -908,6 +982,28 @@ class fusion_array {
     // Helper to check if this is a masked array
     static constexpr bool has_mask = !std::is_same_v<MaskIterator, no_mask_t>;
 
+    // Unmasked specializations do not use this helper.
+    template <typename ResultProperties,
+              typename ResultIterator,
+              typename ResultMaskIterator>
+    [[maybe_unused]] [[nodiscard]] auto _defer_masked_result(
+      ResultIterator result_begin,
+      ResultIterator result_end,
+      ResultMaskIterator mask_begin,
+      ResultMaskIterator mask_end) const {
+        static_assert(has_mask);
+        auto deferred_begin = detail::defer_compaction(mask_begin);
+        auto deferred_end   = detail::defer_compaction(mask_end);
+        return fusion_array<ResultIterator,
+                            decltype(deferred_begin),
+                            ResultProperties>(result_begin,
+                                              result_end,
+                                              _owned_storage,
+                                              deferred_begin,
+                                              deferred_end,
+                                              _mask_storage);
+    }
+
     // A constant result only needs the logical size, not the source values.
     template <typename ResultProperties, typename Value>
     [[nodiscard]] auto _constant_like(Value value) const {
@@ -942,19 +1038,6 @@ class fusion_array {
           result_begin, result_begin + n, nullptr, result_shape);
     }
 
-    // Helper to get unmasked data as a fusion_array
-    [[nodiscard]] auto _data() const {
-        return fusion_array<Iterator, no_mask_t, Properties>(
-          _begin, _end, _owned_storage);
-    }
-
-    // Helper to get mask as a fusion_array (only valid when has_mask)
-    [[nodiscard]] auto _mask() const {
-        static_assert(has_mask, "_mask() requires a masked array");
-        return fusion_array<MaskIterator, no_mask_t>(
-          _mask_range.first, _mask_range.second, _mask_storage);
-    }
-
     // Helper to apply mask for eager operations
     [[nodiscard]] auto _apply_mask_if_needed() const {
         using value_type = typename cuda::std::iterator_traits<
@@ -979,14 +1062,20 @@ class fusion_array {
               result_vec = std::make_shared<thrust::device_vector<value_type>>(
                 n, thrust::default_init);
 
-            auto result_end = thrust::copy_if(_begin,
-                                              _end,
-                                              _mask_range.first,
-                                              result_vec->begin(),
-                                              cuda::std::identity{});
+            // Copy selected indices to a transforming output iterator. Reading
+            // values only on output avoids evaluating a lazy producer at a
+            // rejected position, without an intermediate index buffer.
+            auto indices = thrust::make_counting_iterator(0);
+            auto output  = thrust::make_transform_output_iterator(
+              result_vec->begin(), detail::selected_value<Iterator>{_begin});
+            auto result_end = thrust::copy_if(
+              indices,
+              indices + cuda::std::distance(_begin, _end),
+              _mask_range.first,
+              output,
+              cuda::std::identity{});
 
-            int result_size = cuda::std::distance(result_vec->begin(),
-                                                  result_end);
+            int result_size = cuda::std::distance(output, result_end);
 
             return fusion_array<
               typename thrust::device_vector<value_type>::iterator,
@@ -1249,31 +1338,33 @@ class fusion_array {
         }
     }
 
-    // Map operation with a scalar value
+    /**
+     * @brief Apply a binary functor with a bound scalar value
+     * @details The scalar converts to value_type before binding. Pending masks
+     * are retained without counting or copying the selected values.
+     */
     template <typename ResultProperties = void,
               typename T,
               typename BinaryFunctor>
     auto map2(const T &value, BinaryFunctor binary_op) const -> decltype(auto) {
+        using unary_functor     = make_unary_functor<value_type, BinaryFunctor>;
+        using TransformIterator = thrust::transform_iterator<unary_functor,
+                                                             Iterator>;
+        using result_properties = std::conditional_t<
+          std::is_void_v<ResultProperties>,
+          default_properties_t<TransformIterator>,
+          ResultProperties>;
+        auto op           = unary_functor(value, binary_op);
+        auto result_begin = thrust::make_transform_iterator(_begin, op);
+        auto result_end   = thrust::make_transform_iterator(_end, op);
         if constexpr (has_mask) {
-            return apply().template map2<ResultProperties>(value, binary_op);
+            return _defer_masked_result<result_properties>(
+              result_begin, result_end, _mask_range.first, _mask_range.second);
         } else {
-            using unary_functor = make_unary_functor<value_type, BinaryFunctor>;
-            using TransformIterator = thrust::transform_iterator<unary_functor,
-                                                                 Iterator>;
-            using result_properties = std::conditional_t<
-              std::is_void_v<ResultProperties>,
-              default_properties_t<TransformIterator>,
-              ResultProperties>;
-
             return fusion_array<TransformIterator,
                                 no_mask_t,
                                 result_properties>(
-              thrust::make_transform_iterator(_begin,
-                                              unary_functor(value, binary_op)),
-              thrust::make_transform_iterator(_end,
-                                              unary_functor(value, binary_op)),
-              _owned_storage,
-              _shape);
+              result_begin, result_end, _owned_storage, _shape);
         }
     }
 
@@ -1282,24 +1373,28 @@ class fusion_array {
      * @tparam UnaryFunctor The type of the unary functor
      * @param op The unary operation to apply
      * @return A new fusion_array with the operation applied
+     * @details A pending mask is retained without counting or copying its
+     * selected elements. Consumers evaluate op only at selected positions.
      */
     template <typename ResultProperties = void, typename UnaryFunctor>
     auto map(UnaryFunctor op) const {
+        using TransformIterator = thrust::transform_iterator<UnaryFunctor,
+                                                             Iterator>;
+        using result_properties = std::conditional_t<
+          std::is_void_v<ResultProperties>,
+          default_properties_t<TransformIterator>,
+          ResultProperties>;
+        auto result_begin = thrust::make_transform_iterator(_begin, op);
+        auto result_end   = thrust::make_transform_iterator(_end, op);
         if constexpr (has_mask) {
-            return apply().template map<ResultProperties>(op);
+            return _defer_masked_result<result_properties>(
+              result_begin, result_end, _mask_range.first, _mask_range.second);
         } else {
-            using TransformIterator = thrust::transform_iterator<UnaryFunctor,
-                                                                 Iterator>;
-            using result_properties = std::conditional_t<
-              std::is_void_v<ResultProperties>,
-              default_properties_t<TransformIterator>,
-              ResultProperties>;
-
             return fusion_array<TransformIterator,
                                 no_mask_t,
                                 result_properties>(
-              thrust::make_transform_iterator(_begin, op),
-              thrust::make_transform_iterator(_end, op),
+              result_begin,
+              result_end,
               _owned_storage,  // Pass ownership to derived array
               _shape);
         }
@@ -2091,22 +2186,28 @@ class fusion_array {
     template <int Axis = 0, typename T = int>
     [[nodiscard]] auto sum(
       std::integral_constant<int, Axis> /*axis*/ = {}) const {
+        using result_value = typename detail::sum_value_type<
+          value_type,
+          has_mask && !detail::is_deferred_compaction_v<MaskIterator>>::type;
         if constexpr (Axis == 0 && std::is_integral_v<value_type> &&
                       Properties::domain == domain::zero) {
-            using result_value = std::conditional_t<
-              has_mask,
-              decltype(1 * value_type{}),
-              std::conditional_t<std::is_same_v<value_type, bool>,
-                                 int,
-                                 value_type>>;
             return fusion_array<
               cuda::constant_iterator<result_value>,
               no_mask_t,
               properties<domain::zero, order::constant, true>>(result_value(0));
         } else if constexpr (has_mask) {
-            // Zero out masked elements and sum (no materialization)
-            return _mask()
-              .map2(_data(), detail::masked_value{})
+            // Test the mask before reading a value: a mapped producer may only
+            // be defined at selected positions. No selected-value buffer or
+            // mask count is needed for this reduction.
+            auto indices        = thrust::make_counting_iterator(0);
+            auto selected_begin = thrust::make_transform_iterator(
+              indices,
+              detail::selected_sum_value<Iterator, MaskIterator, result_value>{
+                _begin, _mask_range.first});
+            auto selected_end = selected_begin +
+                                cuda::std::distance(_begin, _end);
+            return fusion_array<decltype(selected_begin)>(
+                     selected_begin, selected_end, _storage_with(_mask_storage))
               .template sum<Axis>();
         } else if constexpr (std::is_same_v<value_type, bool>) {
             return as<int>().template sum<Axis>();
@@ -3625,13 +3726,19 @@ class fusion_array {
     /**
      * @brief Reverse the array (lazy operation)
      * @return A new fusion_array with elements in reverse order
+     * @details Pending selections reverse both their data and mask iterators;
+     * no selected-value buffer or mask count is needed to construct the view.
      */
     [[nodiscard]] auto rev() const {
+        auto rbegin = thrust::make_reverse_iterator(_end);
+        auto rend   = thrust::make_reverse_iterator(_begin);
         if constexpr (has_mask) {
-            return apply().rev();
+            return _defer_masked_result<reversed_properties_t<Properties>>(
+              rbegin,
+              rend,
+              thrust::make_reverse_iterator(_mask_range.second),
+              thrust::make_reverse_iterator(_mask_range.first));
         } else {
-            auto rbegin = thrust::make_reverse_iterator(_end);
-            auto rend   = thrust::make_reverse_iterator(_begin);
             return fusion_array<decltype(rbegin),
                                 no_mask_t,
                                 reversed_properties_t<Properties>>(
@@ -3645,11 +3752,26 @@ class fusion_array {
      * keep
      * @return A masked fusion_array that will filter elements when
      * evaluated
+     * @details An existing mask is combined lazily with the predicate. The
+     * predicate is evaluated only at positions kept by that existing mask.
      */
     template <typename Predicate>
     auto filter(Predicate predicate) const {
         if constexpr (has_mask) {
-            return apply().filter(predicate);
+            auto mask_begin = thrust::make_transform_iterator(
+              thrust::make_counting_iterator(0),
+              detail::selected_predicate<Iterator, MaskIterator, Predicate>{
+                _begin, _mask_range.first, predicate});
+            auto mask_end = mask_begin + cuda::std::distance(_begin, _end);
+            return fusion_array<Iterator,
+                                decltype(mask_begin),
+                                possibly_empty_properties_t<Properties>>(
+              _begin,
+              _end,
+              _owned_storage,
+              mask_begin,
+              mask_end,
+              _storage_with(_mask_storage));
         } else {
             // Create a transform_iterator that applies the predicate
             auto mask_begin = thrust::make_transform_iterator(_begin,

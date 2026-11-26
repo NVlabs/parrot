@@ -23,6 +23,77 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "test_common.hpp"
 
+TEST_CASE("Scalar maps retain pending selections without eager work") {
+    test_detail::evaluation_counters counters;
+    auto values = parrot::array({0, 2, 0, 4});
+    auto mask   = parrot::array({0, 2, 0, -1})
+                  .map(test_detail::observed_mask{counters.data()});
+    auto observe = test_detail::observed_value{counters.data()};
+    auto op      = [observe] __host__ __device__(int value, int scalar) {
+        return observe(value) + scalar;
+    };
+    auto result = values.keep(mask).map2(3, op).times(2);
+
+    CHECK_EQ(counters.get(0), 0);
+    CHECK_EQ(counters.get(2), 0);
+    CHECK(result.storage() == values.storage());
+    CHECK(result.to_host() == std::vector<int>{106, 56});
+    CHECK_EQ(counters.get(0), 2);
+    CHECK_EQ(counters.get(1), 0);
+    counters.reset();
+    CHECK_EQ(result.sum().value(), 162);
+    CHECK_EQ(counters.get(0), 2);
+    CHECK_EQ(counters.get(1), 0);
+}
+
+TEST_CASE("Masked scalar maps retain conversion and accumulator types") {
+    auto values = parrot::array({1, 2, 3}).keep(parrot::array({0, 2, -1}));
+    CHECK(values.add(0.5).to_host() == std::vector<int>{2, 3});
+    auto array_scalar = values.map2(
+      parrot::scalar(0.5), [] __host__ __device__(int value, double scalar) {
+          return value + scalar;
+      });
+    CHECK(array_scalar.to_host() == std::vector<double>{2.5, 3.5});
+
+    auto bytes = parrot::array(std::vector<std::uint8_t>{200, 100, 7})
+                   .keep(parrot::array({1, -1, 0}));
+    auto byte_op = [] __host__ __device__(std::uint8_t value,
+                                          std::uint8_t scalar)
+      -> std::uint8_t { return value + scalar; };
+    auto result = bytes.map2(0, byte_op);
+    static_assert(std::is_same_v<typename decltype(result.sum())::value_type,
+                                 std::uint8_t>);
+    CHECK_EQ(result.sum().value(), 44);
+    auto predicate = bytes.gt(150);
+    static_assert(
+      parrot::is_boolean_v<typename decltype(predicate)::properties_type>);
+    CHECK_EQ(predicate.sum().value(), 1);
+}
+
+TEST_CASE("Masked scalar maps handle empty selections and temporary sources") {
+    test_detail::evaluation_counters counters;
+    auto observe = test_detail::observed_value{counters.data()};
+    auto op      = [observe] __host__ __device__(int value, int scalar) {
+        return observe(value) + scalar;
+    };
+    auto none = parrot::array({0, 0}).keep(parrot::array({0, 0})).map2(7, op);
+    CHECK_EQ(counters.get(0), 0);
+    CHECK(none.to_host().empty());
+    CHECK_EQ(none.sum().value(), 0);
+    CHECK_EQ(counters.get(0), 0);
+
+    auto empty = parrot::array(std::vector<int>{})
+                   .keep(parrot::array(std::vector<int>{}))
+                   .add(5);
+    CHECK(empty.to_host().empty());
+    CHECK_EQ(empty.sum().value(), 0);
+    auto temporary = parrot::array({1, 2, 3})
+                       .keep(parrot::array({0, 1, 1}))
+                       .add(5)
+                       .times(2);
+    CHECK(temporary.to_host() == std::vector<int>{14, 16});
+}
+
 // Test double function
 TEST_CASE("ParrotTest - DoubleTest") {
     auto arr    = parrot::array({1, 2, 3, 4});
