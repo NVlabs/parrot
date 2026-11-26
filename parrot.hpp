@@ -1338,31 +1338,33 @@ class fusion_array {
         }
     }
 
-    // Map operation with a scalar value
+    /**
+     * @brief Apply a binary functor with a bound scalar value
+     * @details The scalar converts to value_type before binding. Pending masks
+     * are retained without counting or copying the selected values.
+     */
     template <typename ResultProperties = void,
               typename T,
               typename BinaryFunctor>
     auto map2(const T &value, BinaryFunctor binary_op) const -> decltype(auto) {
+        using unary_functor     = make_unary_functor<value_type, BinaryFunctor>;
+        using TransformIterator = thrust::transform_iterator<unary_functor,
+                                                             Iterator>;
+        using result_properties = std::conditional_t<
+          std::is_void_v<ResultProperties>,
+          default_properties_t<TransformIterator>,
+          ResultProperties>;
+        auto op    = unary_functor(value, binary_op);
+        auto begin = thrust::make_transform_iterator(_begin, op);
+        auto end   = thrust::make_transform_iterator(_end, op);
         if constexpr (has_mask) {
-            return apply().template map2<ResultProperties>(value, binary_op);
+            return _defer_masked_result<result_properties>(
+              begin, end, _mask_range.first, _mask_range.second);
         } else {
-            using unary_functor = make_unary_functor<value_type, BinaryFunctor>;
-            using TransformIterator = thrust::transform_iterator<unary_functor,
-                                                                 Iterator>;
-            using result_properties = std::conditional_t<
-              std::is_void_v<ResultProperties>,
-              default_properties_t<TransformIterator>,
-              ResultProperties>;
-
             return fusion_array<TransformIterator,
                                 no_mask_t,
                                 result_properties>(
-              thrust::make_transform_iterator(_begin,
-                                              unary_functor(value, binary_op)),
-              thrust::make_transform_iterator(_end,
-                                              unary_functor(value, binary_op)),
-              _owned_storage,
-              _shape);
+              begin, end, _owned_storage, _shape);
         }
     }
 
