@@ -871,6 +871,17 @@ struct unit_run_functor {
     }
 };
 
+template <typename Iterator, typename MaskIterator, typename Predicate>
+struct selected_predicate {
+    Iterator begin;
+    MaskIterator mask;
+    Predicate predicate;
+
+    __host__ __device__ auto operator()(int index) const -> bool {
+        return mask[index] != 0 && static_cast<bool>(predicate(begin[index]));
+    }
+};
+
 template <typename Iterator>
 struct run_start_predicate {
     Iterator begin;
@@ -3739,11 +3750,26 @@ class fusion_array {
      * keep
      * @return A masked fusion_array that will filter elements when
      * evaluated
+     * @details An existing mask is combined lazily with the predicate. The
+     * predicate is evaluated only at positions kept by that existing mask.
      */
     template <typename Predicate>
     auto filter(Predicate predicate) const {
         if constexpr (has_mask) {
-            return apply().filter(predicate);
+            auto mask_begin = thrust::make_transform_iterator(
+              thrust::make_counting_iterator(0),
+              detail::selected_predicate<Iterator, MaskIterator, Predicate>{
+                _begin, _mask_range.first, predicate});
+            auto mask_end = mask_begin + cuda::std::distance(_begin, _end);
+            return fusion_array<Iterator,
+                                decltype(mask_begin),
+                                possibly_empty_properties_t<Properties>>(
+              _begin,
+              _end,
+              _owned_storage,
+              mask_begin,
+              mask_end,
+              _storage_with(_mask_storage));
         } else {
             // Create a transform_iterator that applies the predicate
             auto mask_begin = thrust::make_transform_iterator(_begin,

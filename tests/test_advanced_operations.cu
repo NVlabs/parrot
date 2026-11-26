@@ -20,6 +20,119 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "test_common.hpp"
 
+TEST_CASE("Repeated filters retain masks and short circuit rejected values") {
+    test_detail::evaluation_counters counters;
+    auto values    = parrot::array({0, 2, 0, 4});
+    auto mask      = parrot::array({0, 2, 0, -1})
+                       .map(test_detail::observed_mask{counters.data()});
+    auto observe   = test_detail::observed_value{counters.data()};
+    auto predicate = [observe] __host__ __device__(int value) {
+        return observe(value) >= 30;
+    };
+    auto result = values.keep(mask).filter(predicate).filter(
+      [] __host__ __device__(int value) { return value < 3; });
+
+    CHECK_EQ(counters.get(0), 0);
+    CHECK_EQ(counters.get(2), 0);
+    CHECK(result.storage() == values.storage());
+    CHECK(result.to_host() == std::vector<int>{2});
+    CHECK_GT(counters.get(0), 0);
+    CHECK_EQ(counters.get(1), 0);
+    CHECK_EQ(result.rank(), 1);
+    CHECK(result.shape() == std::vector<int>{1});
+    counters.reset();
+    CHECK_EQ(result.sum().value(), 2);
+    CHECK_GT(counters.get(0), 0);
+    CHECK_EQ(counters.get(1), 0);
+    CHECK(result.where().to_host() == std::vector<int>{1});
+    CHECK_EQ(counters.get(1), 0);
+}
+
+TEST_CASE(
+  "Repeated filters retain property and nonbinary selection semantics") {
+    auto result = parrot::range(6)
+                    .filter(
+                      [] __host__ __device__(int x) { return x % 2 == 0; })
+                    .filter([] __host__ __device__(int x) { return x < 6; });
+    using props = typename decltype(result)::properties_type;
+    static_assert(parrot::is_strict_v<props>);
+    static_assert(parrot::is_ascending_v<props>);
+    static_assert(!parrot::is_nonempty_v<props>);
+    CHECK(result.to_host() == std::vector<int>{2, 4});
+    CHECK(result.where().to_host() == std::vector<int>{1, 2});
+
+    auto nonbinary = parrot::array({0, 2, 3, 4})
+                       .keep(parrot::array({0, 2, -1, 0}))
+                       .filter([] __host__ __device__(int x) {
+                           return x == 2 ? 0 : -3;
+                       });
+    CHECK(nonbinary.to_host() == std::vector<int>{3});
+    CHECK_EQ(nonbinary.sum().value(), 3);
+
+    auto bytes = parrot::array(std::vector<std::uint8_t>{200, 100, 7})
+                   .keep(parrot::array({1, 1, 0}))
+                   .map([] __host__ __device__(std::uint8_t x) { return x; })
+                   .filter(
+                     [] __host__ __device__(std::uint8_t) { return true; });
+    static_assert(
+      std::is_same_v<typename decltype(bytes.sum())::value_type, int>);
+    CHECK_EQ(bytes.sum().value(), 300);
+}
+
+TEST_CASE("Repeated filters handle empty inputs and retain temporary owners") {
+    test_detail::evaluation_counters counters;
+    auto observe   = test_detail::observed_value{counters.data()};
+    auto predicate = [observe] __host__ __device__(int x) {
+        return observe(x) > 0;
+    };
+    auto none = parrot::array({0, 0})
+                  .keep(parrot::array({0, 0}))
+                  .filter(predicate);
+    CHECK(none.to_host().empty());
+    CHECK_EQ(none.sum().value(), 0);
+    CHECK_EQ(counters.get(0), 0);
+
+    auto empty = parrot::array(std::vector<int>{})
+                   .keep(parrot::array(std::vector<int>{}))
+                   .filter(predicate);
+    CHECK(empty.to_host().empty());
+    CHECK_EQ(empty.sum().value(), 0);
+    auto temporary = [] {
+        int threshold = 1;
+        return parrot::array({1, 2, 3, 4})
+          .filter(
+            [threshold] __host__ __device__(int x) { return x > threshold; })
+          .filter([] __host__ __device__(int x) { return x % 2 == 0; });
+    }();
+    CHECK(temporary.to_host() == std::vector<int>{2, 4});
+}
+
+TEST_CASE("Filters compose with mapped scalar and reversed selections") {
+    auto result = parrot::range(8)
+                    .keep(parrot::array({0, 1, 0, 2, 1, 0, -1, 0}))
+                    .map([] __host__ __device__(int x) { return x * 2; })
+                    .add(1)
+                    .filter([] __host__ __device__(int x) { return x > 8; })
+                    .rev()
+                    .map([] __host__ __device__(int x) { return x - 1; });
+    CHECK(result.to_host() == std::vector<int>{14, 10, 8});
+    CHECK_EQ(result.sum().value(), 32);
+    CHECK_EQ(result.front(), 14);
+    CHECK_EQ(result.back(), 8);
+    CHECK(result.shape() == std::vector<int>{3});
+
+    auto bytes = parrot::array(std::vector<std::uint8_t>{200, 100, 7})
+                   .keep(parrot::array({1, 1, 0}))
+                   .map([] __host__ __device__(std::uint8_t x) { return x; })
+                   .rev()
+                   .filter(
+                     [] __host__ __device__(std::uint8_t) { return true; })
+                   .map([] __host__ __device__(std::uint8_t x) { return x; });
+    static_assert(
+      std::is_same_v<typename decltype(bytes.sum())::value_type, std::uint8_t>);
+    CHECK_EQ(bytes.sum().value(), 44);
+}
+
 // Test where function with all non-zeros
 TEST_CASE("ParrotTest - WhereAllTest") {
     auto arr     = parrot::array({1, 1, 1, 1});
