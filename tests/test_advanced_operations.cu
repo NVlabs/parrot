@@ -22,9 +22,9 @@
 
 TEST_CASE("Repeated filters retain masks and short circuit rejected values") {
     test_detail::evaluation_counters counters;
-    auto values    = parrot::array({0, 2, 0, 4});
-    auto mask      = parrot::array({0, 2, 0, -1})
-                       .map(test_detail::observed_mask{counters.data()});
+    auto values = parrot::array({0, 2, 0, 4});
+    auto mask   = parrot::array({0, 2, 0, -1})
+                  .map(test_detail::observed_mask{counters.data()});
     auto observe   = test_detail::observed_value{counters.data()};
     auto predicate = [observe] __host__ __device__(int value) {
         return observe(value) >= 30;
