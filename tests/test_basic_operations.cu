@@ -255,7 +255,7 @@ TEST_CASE("Masked map chains defer selection and skip rejected values") {
     test_detail::evaluation_counters counters;
     auto values = parrot::array({0, 2, 0, 4});
     auto mask   = parrot::array({0, 2, 0, -1})
-                    .map(test_detail::observed_mask{counters.data()});
+                  .map(test_detail::observed_mask{counters.data()});
     auto result = values.keep(mask)
                     .map(test_detail::observed_value{counters.data()})
                     .map(
@@ -321,9 +321,9 @@ TEST_CASE("Masked maps retain result types properties and source ownership") {
 
     using positive = parrot::properties<parrot::domain::positive>;
     auto trusted   = parrot::range(3)
-                       .keep(parrot::array({0, 1, 1}))
-                       .map<positive>(
-                         [] __host__ __device__(int x) { return x; });
+                     .keep(parrot::array({0, 1, 1}))
+                     .map<positive>(
+                       [] __host__ __device__(int x) { return x; });
     static_assert(
       parrot::is_nonzero_v<typename decltype(trusted)::properties_type>);
     CHECK_EQ(trusted.sum().value(), 5);
