@@ -82,8 +82,8 @@ TEST_CASE("Deferred selection preserves unmasked sum accumulator types") {
     auto mask       = parrot::array({1, 2, 0});
     auto mask_begin = parrot::detail::defer_compaction(mask.begin());
     auto mask_end   = parrot::detail::defer_compaction(mask.end());
-    auto selected = parrot::fusion_array<decltype(values.begin()),
-                                         decltype(mask_begin)>(values.begin(),
+    auto selected   = parrot::fusion_array<decltype(values.begin()),
+                                           decltype(mask_begin)>(values.begin(),
                                                                values.end(),
                                                                values.storage(),
                                                                mask_begin,
@@ -102,9 +102,9 @@ TEST_CASE("Deferred selection preserves unmasked sum accumulator types") {
 
     auto zeros            = parrot::array(std::vector<std::uint8_t>{0, 0, 0});
     using zero_properties = parrot::properties<parrot::domain::zero>;
-    auto selected_zeros = parrot::fusion_array<decltype(zeros.begin()),
-                                               decltype(mask_begin),
-                                               zero_properties>(zeros.begin(),
+    auto selected_zeros   = parrot::fusion_array<decltype(zeros.begin()),
+                                                 decltype(mask_begin),
+                                                 zero_properties>(zeros.begin(),
                                                                 zeros.end(),
                                                                 zeros.storage(),
                                                                 mask_begin,
