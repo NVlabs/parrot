@@ -20,6 +20,74 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "test_common.hpp"
 
+TEST_CASE("Masked reverse reverses data and selection without eager work") {
+    test_detail::evaluation_counters counters;
+    auto values = parrot::array({0, 2, 0, 4});
+    auto source = values.map(test_detail::observed_value{counters.data()});
+    auto mask   = parrot::array({0, 2, 0, -1})
+                  .map(test_detail::observed_mask{counters.data()});
+    auto result = source.keep(mask).rev();
+
+    CHECK_EQ(counters.get(0), 0);
+    CHECK_EQ(counters.get(2), 0);
+    CHECK(result.storage() == values.storage());
+    CHECK(result.to_host() == std::vector<int>{25, 50});
+    CHECK_EQ(counters.get(0), 2);
+    CHECK_EQ(counters.get(1), 0);
+    CHECK_EQ(result.front(), 25);
+    CHECK_EQ(result.back(), 50);
+    CHECK_EQ(result.rank(), 1);
+    CHECK(result.shape() == std::vector<int>{2});
+
+    counters.reset();
+    CHECK_EQ(result.sum().value(), 75);
+    CHECK_EQ(counters.get(0), 2);
+    CHECK_EQ(counters.get(1), 0);
+}
+
+TEST_CASE("Masked reverse preserves order properties and selected positions") {
+    auto source   = parrot::range(6);
+    auto selected = source.keep(parrot::array({0, -1, 0, 0, 2, 0}));
+    auto reversed = selected.rev();
+    using props   = typename decltype(reversed)::properties_type;
+    static_assert(parrot::is_descending_v<props>);
+    static_assert(parrot::is_strict_v<props>);
+    static_assert(!parrot::is_nonempty_v<props>);
+    CHECK(reversed.to_host() == std::vector<int>{5, 2});
+    CHECK(reversed.rev().to_host() == std::vector<int>{2, 5});
+    CHECK(reversed.where().to_host() == std::vector<int>{1, 2});
+
+    auto bytes = parrot::array(std::vector<std::uint8_t>{200, 100, 7})
+                   .keep(parrot::array({1, 1, 0}))
+                   .rev();
+    static_assert(
+      std::is_same_v<typename decltype(bytes.sum())::value_type, std::uint8_t>);
+    CHECK_EQ(bytes.sum().value(), 44);
+}
+
+TEST_CASE(
+  "Masked reverse handles empty selections and retains temporary owners") {
+    test_detail::evaluation_counters counters;
+    auto none = parrot::array({0, 0})
+                  .map(test_detail::observed_value{counters.data()})
+                  .keep(parrot::array({0, 0}))
+                  .rev();
+    CHECK(none.to_host().empty());
+    CHECK_EQ(none.sum().value(), 0);
+    CHECK_EQ(counters.get(0), 0);
+
+    auto empty = parrot::array(std::vector<int>{})
+                   .keep(parrot::array(std::vector<int>{}))
+                   .rev();
+    CHECK(empty.to_host().empty());
+    CHECK_EQ(empty.sum().value(), 0);
+    auto temporary = parrot::array({2, 4, 8})
+                       .keep(parrot::array({2, 0, -1}))
+                       .rev()
+                       .rev();
+    CHECK(temporary.to_host() == std::vector<int>{2, 8});
+}
+
 // Test add function with another array
 TEST_CASE("ParrotTest - AddArrayTest") {
     auto arr1   = parrot::array({1, 2, 3, 4});
