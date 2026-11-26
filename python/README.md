@@ -92,7 +92,7 @@ output dtype. Boolean `sum` counts into an integer. These are Python contracts,
 not a promise of identical C++ promotions or property-specialization dispatch.
 
 Run both the existing and fusion GPU tests with `python -m pytest python -q`.
-The Python GPU Tests workflow runs for PRs targeting `experimental-parrot-python`.
+The Python GPU job in Unit Tests runs for PRs targeting `experimental-parrot-python`.
 The guarded iterator adapter requires cuda-cccl 1.2.1 or later.
 
 ## Installation

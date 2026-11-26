@@ -2,7 +2,7 @@ name: Unit Tests
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, experimental-parrot-python ]
     paths:
       - '**.cu'
       - '**.hpp'
@@ -12,9 +12,10 @@ on:
       - '**.c'
       - 'CMakeLists.txt'
       - 'tests/**'
+      - 'python/**'
       - '.github/workflows/unit-tests.yml'
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, experimental-parrot-python ]
     paths:
       - '**.cu'
       - '**.hpp'
@@ -24,14 +25,25 @@ on:
       - '**.c'
       - 'CMakeLists.txt'
       - 'tests/**'
+      - 'python/**'
       - '.github/workflows/unit-tests.yml'
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: Backend to test for a manual run
+        type: choice
+        options: [cpp, python]
+        default: cpp
 
 jobs:
   unit-tests:
     runs-on: [self-hosted, Linux, X64]
     # Only run on the main NVLabs/parrot repository, not on forks
-    if: github.repository == 'NVLabs/parrot'
+    if: >-
+      github.repository == 'NVLabs/parrot' &&
+      github.base_ref != 'experimental-parrot-python' &&
+      github.ref_name != 'experimental-parrot-python' &&
+      inputs.backend != 'python'
     
     steps:
     - name: Checkout code
@@ -102,3 +114,30 @@ jobs:
         ./test_top10
         echo "Running fun tests..."
         ./test_fun
+
+  python-gpu-tests:
+    if: >-
+      github.repository == 'NVLabs/parrot' &&
+      (github.base_ref == 'experimental-parrot-python' ||
+       github.ref_name == 'experimental-parrot-python' ||
+       inputs.backend == 'python')
+    permissions:
+      contents: read
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 30
+    env:
+      PARROT_PYTHON_ENV: ${{ runner.temp }}/parrot-python-env
+      CUDA_VISIBLE_DEVICES: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: python/requirements.txt
+      - name: Install Python CUDA dependencies
+        run: |
+          python -m venv "$PARROT_PYTHON_ENV"
+          "$PARROT_PYTHON_ENV/bin/python" -m pip install -r python/requirements.txt
+      - name: Run Python and fusion GPU tests
+        run: '"$PARROT_PYTHON_ENV/bin/python" -m pytest python -q'
