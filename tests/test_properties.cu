@@ -53,6 +53,69 @@ struct absolute_less {
 
 }  // namespace
 
+TEST_CASE("Masked consumers do not evaluate rejected lazy values") {
+    test_detail::evaluation_counters counters;
+    auto values   = parrot::array({0, 2, 0, 4});
+    auto mapped   = values.map(test_detail::observed_value{counters.data()});
+    auto selected = mapped.keep(parrot::array({0, 2, 0, -1}));
+
+    SUBCASE("Compaction reads only selected source values") {
+        CHECK(selected.apply().to_host() == std::vector<int>{50, 25});
+        CHECK_EQ(counters.get(0), 2);
+        CHECK_EQ(counters.get(1), 0);
+    }
+    SUBCASE("Sum tests the mask before evaluating the source") {
+        CHECK_EQ(selected.sum().value(), 75);
+        CHECK_EQ(counters.get(0), 2);
+        CHECK_EQ(counters.get(1), 0);
+    }
+    SUBCASE("An all-false mask evaluates no source values") {
+        auto none = mapped.keep(parrot::array({0, 0, 0, 0}));
+        CHECK(none.to_host().empty());
+        CHECK_EQ(none.sum().value(), 0);
+        CHECK_EQ(counters.get(0), 0);
+    }
+}
+
+TEST_CASE("Deferred selection preserves unmasked sum accumulator types") {
+    auto values     = parrot::array(std::vector<std::uint8_t>{200, 100, 7});
+    auto mask       = parrot::array({1, 2, 0});
+    auto mask_begin = parrot::detail::defer_compaction(mask.begin());
+    auto mask_end   = parrot::detail::defer_compaction(mask.end());
+    auto selected = parrot::fusion_array<decltype(values.begin()),
+                                         decltype(mask_begin)>(values.begin(),
+                                                               values.end(),
+                                                               values.storage(),
+                                                               mask_begin,
+                                                               mask_end,
+                                                               mask.storage());
+
+    static_assert(std::is_same_v<typename decltype(selected.sum())::value_type,
+                                 std::uint8_t>);
+    static_assert(
+      std::is_same_v<typename decltype(values.keep(mask).sum())::value_type,
+                     int>);
+    CHECK_EQ(selected.sum().value(), values.keep(mask).apply().sum().value());
+    CHECK_EQ(selected.sum().value(), 44);
+    CHECK_EQ(values.keep(mask).sum().value(), 300);
+    CHECK(selected.to_host() == std::vector<std::uint8_t>{200, 100});
+
+    auto zeros            = parrot::array(std::vector<std::uint8_t>{0, 0, 0});
+    using zero_properties = parrot::properties<parrot::domain::zero>;
+    auto selected_zeros = parrot::fusion_array<decltype(zeros.begin()),
+                                               decltype(mask_begin),
+                                               zero_properties>(zeros.begin(),
+                                                                zeros.end(),
+                                                                zeros.storage(),
+                                                                mask_begin,
+                                                                mask_end,
+                                                                mask.storage());
+    static_assert(
+      std::is_same_v<typename decltype(selected_zeros.sum())::value_type,
+                     std::uint8_t>);
+    CHECK_EQ(selected_zeros.sum().value(), 0);
+}
+
 TEST_CASE("Compile-time property implications") {
     using positive = parrot::properties<parrot::domain::positive>;
     using negative = parrot::properties<parrot::domain::negative>;

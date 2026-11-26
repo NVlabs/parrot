@@ -6,6 +6,20 @@ Overview
 
 The ``fusion_array`` class is the core of Parrot, providing fused evaluation of array operations.
 
+Masked evaluation
+~~~~~~~~~~~~~~~~~
+
+A mask selects every position whose mask value is nonzero. Consumers check the
+mask before reading a selected value, so a lazy element function need only be
+defined at the selected positions. ``apply()`` writes the selected values in
+stable order without allocating a separate index array. ``sum()`` consumes the
+selection directly, without a selected-value buffer or a preliminary mask count.
+
+The value producer and mask retain their source owners. An upstream producer
+may still need to run while evaluating a predicate that depends on its values.
+Repeated consumers can evaluate lazy elements again; selection does not cache
+their results.
+
 .. note::
    You can create arrays in various ways:
 
