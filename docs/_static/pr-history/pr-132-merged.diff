@@ -1,0 +1,80 @@
+diff --git a/parrot.hpp b/parrot.hpp
+index cc7d25d5d6592f1a18c992bbb2eff8ea6024aaab..811155acc58bc940e9af16bf641bca3d10199605 100644
+--- a/parrot.hpp
++++ b/parrot.hpp
+@@ -2194,21 +2194,10 @@ class fusion_array {
+ 
+     /**
+      * @brief Get the first value (useful for extracting reduction results)
+-     * @return The first value in the array, properly handling thrust pairs
++     * @return A copy of the first selected value, which stays valid after the
++     * array is destroyed
+      */
+-    [[nodiscard]] auto value() const {
+-        if constexpr (is_thrust_pair_v<value_type>) {
+-            // For thrust pairs, explicitly copy device_reference to host pair
+-            using pair_type = typename cuda::std::iterator_traits<
+-              Iterator>::value_type;
+-            thrust::pair<typename pair_type::first_type,
+-                         typename pair_type::second_type>
+-              host_pair = *_begin;
+-            return host_pair;
+-        } else {
+-            return *_begin;
+-        }
+-    }
++    [[nodiscard]] auto value() const { return front(); }
+ 
+     /**
+      * @brief Get the first element of the array
+diff --git a/tests/test_basic_operations.cu b/tests/test_basic_operations.cu
+index d99e844dfe8587c0c8d482bfd1935215675e2671..54fc5e45610cb56cfafdbbb1890281aba0818614 100644
+--- a/tests/test_basic_operations.cu
++++ b/tests/test_basic_operations.cu
+@@ -16,6 +16,7 @@
+  */
+ 
+ #include <stdexcept>
++#include <type_traits>
+ #include "parrot.hpp"
+ #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+ #include "test_common.hpp"
+@@ -193,3 +194,38 @@ TEST_CASE("ParrotTest - WhereMapPlus0Test") {
+     check_match_eq(result, expected);
+     check_match_eq(result2, expected);
+ }
++
++// value() honors the mask, like front()
++TEST_CASE("ParrotTest - MaskedValueTest") {
++    auto arr  = parrot::array({10, 20, 30});
++    auto kept = arr.keep(parrot::array({0, 1, 1}));
++    CHECK_EQ(kept.value(), 20);
++    CHECK_EQ(kept.value(), kept.front());
++
++    auto pairs     = parrot::array({5, 6}).pairs(parrot::array({7, 8}));
++    auto kept_pair = pairs.keep(parrot::array({0, 1}));
++    CHECK_EQ(kept_pair.value().first, 6);
++    CHECK_EQ(kept_pair.value().second, 8);
++
++    auto none = arr.keep(parrot::array({0, 0, 0}));
++    CHECK_THROWS_AS((void)none.value(), std::invalid_argument);
++}
++
++// value() copies out of device storage, so the result outlives a temporary
++// array, and rank-0 reductions keep their result types
++TEST_CASE("ParrotTest - ValueReturnTypeTest") {
++    auto arr  = parrot::array({10, 20, 30});
++    auto kept = arr.keep(parrot::array({0, 1, 1}));
++    CHECK_EQ(arr.value(), 10);
++    CHECK((std::is_same_v<decltype(arr.value()), int>));
++    CHECK((std::is_same_v<decltype(arr.sums().value()), int>));
++    CHECK((std::is_same_v<decltype(kept.value()), int>));
++
++    auto dbl = parrot::array({1.5, 2.5});
++    CHECK((std::is_same_v<decltype(arr.sum().value()), int>));
++    CHECK((std::is_same_v<decltype(arr.any().value()), int>));
++    CHECK((std::is_same_v<decltype(dbl.sum().value()), double>));
++    CHECK((std::is_same_v<decltype(dbl.maxr().value()), double>));
++    CHECK((std::is_same_v<decltype(arr.pairs(arr).value()),
++                          thrust::pair<int, int>>));
++}

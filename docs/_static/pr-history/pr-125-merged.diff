@@ -1,0 +1,55 @@
+diff --git a/parrot.hpp b/parrot.hpp
+index 796c26bbe14ee4ceda85e67cecfed930af4e1bed..9028c358567f6b1bada91083c53f8807518cd87d 100644
+--- a/parrot.hpp
++++ b/parrot.hpp
+@@ -392,8 +392,7 @@ struct min_functor {
+  */
+ struct min {
+     template <typename T>
+-    __host__ __device__ auto operator()(const T &a, const T &b) const
+-      -> decltype(a < b ? a : b) {
++    __host__ __device__ auto operator()(const T &a, const T &b) const -> T {
+         return a < b ? a : b;
+     }
+ };
+@@ -403,8 +402,7 @@ struct min {
+  */
+ struct max {
+     template <typename T>
+-    __host__ __device__ auto operator()(const T &a, const T &b) const
+-      -> decltype(a > b ? a : b) {
++    __host__ __device__ auto operator()(const T &a, const T &b) const -> T {
+         return a > b ? a : b;
+     }
+ };
+diff --git a/tests/test_array_operations.cu b/tests/test_array_operations.cu
+index 2391f60ed7bc45be9b7cf8bd89ffea47688fcf37..d73a31618e75c99e973efe123fe86cd79ece9bac 100644
+--- a/tests/test_array_operations.cu
++++ b/tests/test_array_operations.cu
+@@ -195,10 +195,25 @@ TEST_CASE("ParrotTest - CombinedArrayAndScalarTest") {
+     auto arr3      = parrot::array({15, 25, 35, 45});
+     auto arr4      = parrot::array({25, 15, 40, 30});
+     auto result2   = arr3.max(20).min(arr4);
+-    auto expected2 = parrot::array({20, 15, 40, 30});
++    auto expected2 = parrot::array({20, 15, 35, 30});
+     check_match_eq(result2, expected2);
+ }
+ 
++// min and max return values, not references to their arguments, so lazy
++// chains that read their results do not see dangling temporaries
++TEST_CASE("ParrotTest - MinMaxChainTest") {
++    static_assert(!std::is_reference_v<decltype(parrot::min{}(1, 2))>);
++    static_assert(!std::is_reference_v<decltype(parrot::max{}(1, 2))>);
++
++    auto arr1 = parrot::array({15, 25, 35, 45});
++    auto arr2 = parrot::array({25, 15, 40, 30});
++    CHECK(check_match(arr1.max(20).add(arr2), parrot::array({45, 40, 75, 75})));
++    CHECK(
++      check_match(arr1.min(arr2).add(arr2), parrot::array({40, 30, 75, 60})));
++    CHECK(check_match(parrot::range(8).min(5).differ(),
++                      parrot::array({1, 1, 1, 1, 0, 0, 0})));
++}
++
+ // Test map2 function with a custom functor
+ TEST_CASE("ParrotTest - Map2Test") {
+     // Using the binary functor defined in parrot.hpp for multiplication

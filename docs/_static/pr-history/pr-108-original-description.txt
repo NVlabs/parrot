@@ -1,0 +1,11 @@
+## Problem and change
+Segmented reductions did not accept an explicit CUDA stream. Propagate the requested stream through CUB's scratch-size query and reduction launch, plus row/column reduction callers. Full-array host-scalar reduction rejects nondefault streams explicitly. This P1 keeps synchronous scratch allocation/free.
+
+## Validation
+RTX 5090, CUDA 13.0.88, CCCL 3.4.2, doctest 2.4.11. The original regression and reduction suite pass 25 cases / 48 assertions. The expanded follow-up harness also passes on this P1: **28 cases / 15,048 assertions**, including cross-stream dependencies, boundaries, column forwarding and two-device isolation.
+
+At `-O2`, original upstream `d7d47a6` and P1 `9356c16` each pass 33/36 array cases, failing the same MinArrayTest, MaxArrayTest and CombinedArrayAndScalarTest. These pre-existing failures are documented in the dependent draft's `docs/RELEASE_TEST_FINDINGS.md`; no all-green optimized-suite claim is made.
+
+The dependent [P2](https://github.com/0z5a/parrot/pull/1) adds explicitly opt-in stream-ordered scratch. Its final implementation preserves this P1's default allocation behavior and public `parrot.hpp`. Two-hardware performance and independence measurements are in `docs/STREAM_POLICY_RESULTS.md`.
+
+Related to #19 and #20.

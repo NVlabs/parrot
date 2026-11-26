@@ -1,0 +1,305 @@
+diff --git a/parrot.hpp b/parrot.hpp
+index dd0d26782ec52a2be88b1daeeeb2b0e1b6f94014..fb1b24e363804af694cc69cecfd03ccb0e3b9f2f 100644
+--- a/parrot.hpp
++++ b/parrot.hpp
+@@ -41,7 +41,9 @@
+ #include <cmath>
+ #include <cstdint>
+ #include <ctime>
++#include <cuda/functional>
+ #include <cuda/iterator>
++#include <cuda/std/functional>
+ #include <initializer_list>
+ #include <iomanip>
+ #include <iostream>
+@@ -1701,12 +1703,17 @@ class fusion_array {
+               typename BinaryOp>
+     auto reduce(T init,
+                 BinaryOp op,
+-                std::integral_constant<int, Axis> /*axis*/ = {}) const {
++                std::integral_constant<int, Axis> /*axis*/ = {},
++                cudaStream_t stream                        = 0) const {
+         using value_type = typename std::iterator_traits<Iterator>::value_type;
+ 
+         if constexpr (Axis == 0) {
+             // Default reduction (all elements)
+             // Perform the reduction to get a single scalar value
++            if (stream != 0) {
++                throw std::invalid_argument(
++                  "Explicit stream is supported only for row-wise reductions");
++            }
+             auto result = thrust::reduce(_begin, _end, init, op);
+ 
+             // Return a fusion_array with a constant iterator of the result
+@@ -1730,8 +1737,8 @@ class fusion_array {
+             }
+             // Transpose, then perform row-wise reduction on the transposed
+             // array. The result is a 1D array of length num_cols (original).
+-            return this->transpose().template reduce<2, ResultProperties>(init,
+-                                                                          op);
++            return this->transpose().template reduce<2, ResultProperties>(
++              init, op, std::integral_constant<int, 2>{}, stream);
+         } else if constexpr (Axis == 2) {
+             // Row-wise reduction (for 2D arrays)
+             if (_shape.size() < 2) {
+@@ -1749,7 +1756,8 @@ class fusion_array {
+             // Perform row-wise reduction using reduce_by_key
+             auto output = result_vec->begin();
+ 
+-            thrustx::reduce_by_n(_begin, _end, output, num_cols, op, init);
++            thrustx::reduce_by_n(
++              _begin, _end, output, num_cols, op, init, stream);
+ 
+             // Return result as fusion_array
+             using result_iterator = typename thrust::device_vector<
+@@ -1797,7 +1805,7 @@ class fusion_array {
+                                 scalar_properties_t<host_value_type>>(front());
+         } else {
+             return reduce<Axis>(std::numeric_limits<value_type>::lowest(),
+-                                thrust::maximum<value_type>());
++                                cuda::maximum<value_type>());
+         }
+     }
+ 
+@@ -1826,7 +1834,7 @@ class fusion_array {
+                                 scalar_properties_t<host_value_type>>(back());
+         } else {
+             return reduce<Axis>(std::numeric_limits<value_type>::max(),
+-                                thrust::minimum<value_type>());
++                                cuda::minimum<value_type>());
+         }
+     }
+ 
+@@ -1845,7 +1853,7 @@ class fusion_array {
+             // Zero out masked elements and sum (no materialization)
+             return (_mask() * _data()).template sum<Axis>();
+         } else {
+-            return reduce<Axis>(value_type(0), thrust::plus<value_type>());
++            return reduce<Axis>(value_type(0), cuda::std::plus<value_type>());
+         }
+     }
+ 
+@@ -1865,7 +1873,7 @@ class fusion_array {
+                                              Axis == 0 ? order::constant
+                                                        : order::unknown,
+                                              Axis == 0>;
+-        return reduce<Axis, result_properties>(0, thrust::logical_or<int>());
++        return reduce<Axis, result_properties>(0, cuda::std::logical_or<int>());
+     }
+ 
+     /**
+@@ -1884,7 +1892,8 @@ class fusion_array {
+                                              Axis == 0 ? order::constant
+                                                        : order::unknown,
+                                              Axis == 0>;
+-        return reduce<Axis, result_properties>(1, thrust::logical_and<int>());
++        return reduce<Axis, result_properties>(1,
++                                               cuda::std::logical_and<int>());
+     }
+ 
+     /**
+@@ -1967,7 +1976,7 @@ class fusion_array {
+      */
+     template <int Axis = 0, typename T = int>
+     [[nodiscard]] auto prod() const {
+-        return reduce<Axis>(value_type(1), thrust::multiplies<value_type>());
++        return reduce<Axis>(value_type(1), cuda::std::multiplies<value_type>());
+     }
+ 
+     /**
+@@ -2062,7 +2071,8 @@ class fusion_array {
+                                              Axis == 0 ? order::ascending
+                                                        : order::unknown,
+                                              Properties::nonempty>;
+-        return scan<Axis, result_properties>(thrust::logical_or<value_type>());
++        return scan<Axis, result_properties>(
++          cuda::std::logical_or<value_type>());
+     }
+ 
+     /**
+@@ -2080,7 +2090,8 @@ class fusion_array {
+                                              Axis == 0 ? order::descending
+                                                        : order::unknown,
+                                              Properties::nonempty>;
+-        return scan<Axis, result_properties>(thrust::logical_and<value_type>());
++        return scan<Axis, result_properties>(
++          cuda::std::logical_and<value_type>());
+     }
+ 
+     /**
+@@ -2101,7 +2112,7 @@ class fusion_array {
+                                                  Axis == 0 ? order::descending
+                                                            : order::unknown,
+                                                  Properties::nonempty>;
+-            return scan<Axis, result_properties>(thrust::minimum<value_type>());
++            return scan<Axis, result_properties>(cuda::minimum<value_type>());
+         }
+     }
+ 
+@@ -2123,7 +2134,7 @@ class fusion_array {
+                                                  Axis == 0 ? order::ascending
+                                                            : order::unknown,
+                                                  Properties::nonempty>;
+-            return scan<Axis, result_properties>(thrust::maximum<value_type>());
++            return scan<Axis, result_properties>(cuda::maximum<value_type>());
+         }
+     }
+ 
+@@ -2138,7 +2149,7 @@ class fusion_array {
+     template <int Axis = 0>
+     [[nodiscard]] auto sums(
+       std::integral_constant<int, Axis> /*axis*/ = {}) const {
+-        return scan<Axis>(thrust::plus<value_type>());
++        return scan<Axis>(cuda::std::plus<value_type>());
+     }
+ 
+     /**
+@@ -2152,7 +2163,7 @@ class fusion_array {
+     template <int Axis = 0>
+     [[nodiscard]] auto prods(
+       std::integral_constant<int, Axis> /*axis*/ = {}) const {
+-        return scan<Axis>(thrust::multiplies<value_type>());
++        return scan<Axis>(cuda::std::multiplies<value_type>());
+     }
+ 
+     /**
+@@ -2228,7 +2239,7 @@ class fusion_array {
+                                           row_indices + size(),
+                                           _begin,
+                                           result_vec->begin(),
+-                                          thrust::equal_to<int>(),
++                                          cuda::std::equal_to<int>(),
+                                           op);
+ 
+             // Return result as fusion_array
+@@ -2602,7 +2613,7 @@ class fusion_array {
+             thrust::inclusive_scan(indices_vec->begin(),
+                                    indices_vec->end(),
+                                    indices_vec->begin(),
+-                                   thrust::maximum<int>{});
++                                   cuda::maximum<int>{});
+ 
+             // Create result vector using permutation iterator and copy
+             auto
+diff --git a/tests/test_reductions.cu b/tests/test_reductions.cu
+index 40c11f5550aefd602d47df738c932cbeb942bd1c..5259c3b19b148a96f14e2b65b8217bbf37420ebd 100644
+--- a/tests/test_reductions.cu
++++ b/tests/test_reductions.cu
+@@ -203,4 +203,59 @@ TEST_CASE("ParrotTest - StatsModeNegativeTest") {
+     auto arr    = parrot::array({-1, -2, -1, -3, -1});
+     auto result = parrot::stats::mode(arr);
+     CHECK_EQ(result.value(), -1);  // -1 appears most frequently (3 times)
+-}
+\ No newline at end of file
++}
++__global__ void fill_stream_input(int *values, int offset) {
++    int i = threadIdx.x;
++    if (i < 8) { values[i] = i + offset; }
++}
++
++__global__ void scale_stream_output(int *values) {
++    int i = threadIdx.x;
++    if (i < 2) { values[i] *= 2; }
++}
++
++TEST_CASE("ParrotTest - ExplicitStreamSegmentedReduction") {
++    thrust::device_vector<int> input(8, thrust::default_init);
++    thrust::device_vector<int> output(2, thrust::default_init);
++    cudaStream_t producer, reduction;
++    cudaEvent_t ready;
++    REQUIRE_EQ(cudaStreamCreateWithFlags(&producer, cudaStreamNonBlocking),
++               cudaSuccess);
++    REQUIRE_EQ(cudaStreamCreateWithFlags(&reduction, cudaStreamNonBlocking),
++               cudaSuccess);
++    REQUIRE_EQ(cudaEventCreateWithFlags(&ready, cudaEventDisableTiming),
++               cudaSuccess);
++
++    fill_stream_input<<<1, 32, 0, producer>>>(
++      thrust::raw_pointer_cast(input.data()), 1);
++    REQUIRE_EQ(cudaEventRecord(ready, producer), cudaSuccess);
++    REQUIRE_EQ(cudaStreamWaitEvent(reduction, ready), cudaSuccess);
++    thrustx::reduce_by_n(input.begin(),
++                         input.end(),
++                         output.begin(),
++                         4,
++                         cuda::std::plus<int>{},
++                         0,
++                         reduction);
++    scale_stream_output<<<1, 32, 0, reduction>>>(
++      thrust::raw_pointer_cast(output.data()));
++    REQUIRE_EQ(cudaStreamSynchronize(reduction), cudaSuccess);
++    CHECK_EQ(output[0], 20);
++    CHECK_EQ(output[1], 52);
++
++    auto matrix = parrot::array({1, 2, 3, 4, 5, 6, 7, 8}).reshape({2, 4});
++    auto sums   = matrix.reduce(
++      0, parrot::add{}, std::integral_constant<int, 2>{}, reduction);
++    REQUIRE_EQ(cudaStreamSynchronize(reduction), cudaSuccess);
++    auto host = sums.to_host();
++    CHECK_EQ(host[0], 10);
++    CHECK_EQ(host[1], 26);
++    CHECK_THROWS_AS(
++      (void)matrix.reduce(
++        0, parrot::add{}, std::integral_constant<int, 0>{}, reduction),
++      std::invalid_argument);
++
++    REQUIRE_EQ(cudaEventDestroy(ready), cudaSuccess);
++    REQUIRE_EQ(cudaStreamDestroy(reduction), cudaSuccess);
++    REQUIRE_EQ(cudaStreamDestroy(producer), cudaSuccess);
++}
+diff --git a/thrustx.hpp b/thrustx.hpp
+index b0bbeb71bbeb8f8d45712b239602c74db75d6c26..2991c01617efdaef4c85971913b32b7e475ed33b 100644
+--- a/thrustx.hpp
++++ b/thrustx.hpp
+@@ -44,7 +44,8 @@ void reduce_by_n_impl(InputIterator first,
+                       OutputIterator out,
+                       int N,
+                       BinaryOp op,
+-                      T init) {
++                      T init,
++                      cudaStream_t stream = 0) {
+     if (N <= 0) {
+         throw std::invalid_argument("reduce_by_n: N must be positive");
+     }
+@@ -71,7 +72,8 @@ void reduce_by_n_impl(InputIterator first,
+                                        num_segments,
+                                        N,  // segment_size
+                                        op,
+-                                       init);
++                                       init,
++                                       stream);
+ 
+     // Raw CUDA allocation - no initialization kernel
+     cudaMalloc(&d_temp_storage, temp_storage_bytes);
+@@ -84,7 +86,8 @@ void reduce_by_n_impl(InputIterator first,
+                                        num_segments,
+                                        N,  // segment_size
+                                        op,
+-                                       init);
++                                       init,
++                                       stream);
+ 
+     // Free temp storage
+     cudaFree(d_temp_storage);
+@@ -285,6 +288,21 @@ void reduce_by_n(InputIterator first,
+     reduce_by_n_impl(first, last, out, N, op, init);
+ }
+ 
++// Explicit stream for callers that order producers and consumers themselves.
++template <typename InputIterator,
++          typename OutputIterator,
++          typename BinaryOp,
++          typename T>
++void reduce_by_n(InputIterator first,
++                 InputIterator last,
++                 OutputIterator out,
++                 int N,
++                 BinaryOp op,
++                 T init,
++                 cudaStream_t stream) {
++    reduce_by_n_impl(first, last, out, N, op, init, stream);
++}
++
+ // Backward compatibility overload (uses default initialization)
+ template <typename InputIterator, typename OutputIterator, typename BinaryOp>
+ void reduce_by_n(InputIterator first,

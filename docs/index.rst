@@ -52,6 +52,7 @@ Contents
    :maxdepth: 1
    
    how_to_use
+   contribution_history
    fusion_array
    examples
 

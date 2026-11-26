@@ -1,0 +1,11 @@
+🐛 Treat the keep mask as a predicate in masked sum
+
+Masked sum multiplied each element by its mask value, while size(),
+front() and apply() treat any nonzero mask value as "keep". As a result
+array({1, 2, 3}).keep(array({2, 0, 3})).sum() returned 11 instead of 4,
+and an excluded infinity or NaN made the sum NaN, as 0 * inf is NaN.
+
+Select with mask != 0 ? value : 0, which also covers the boolean branch.
+The result type is now decltype(1 * value), as in the domain::zero
+shortcut just above, so it no longer depends on the mask's type: int
+values with a double mask now sum to int instead of double.

@@ -1,0 +1,33 @@
+## What
+
+`map2` sizes the result of an array-with-array operation as `max(size(), value.size())`. When one side is rank 0 (a reduction result) and the other side is empty, that size is 1 instead of 0, so the zip reads element 0 of the empty operand:
+
+```cpp
+auto d = parrot::array({10}).deltas();  // size 0
+(d.maxr() == d).size();                 // main: 1, expected 0
+```
+
+That is subcase 3 of `Top 10 - #7 Maximum Gap Count`. `deltas()` there is a view over a one-element buffer, so the reduce reads 4 bytes past the end of it. compute-sanitizer memcheck reports an invalid `__global__` read in `DeviceReduceSingleTileKernel`. The launch failure is sticky, so the next four test cases (`#5`, `#8`, `#9`, `#10`) then fail with `cudaErrorLaunchFailure`. Without memcheck the out-of-bounds read goes unnoticed and the suite passes. This is the heap-buffer-overflow noted as pre-existing in #132.
+
+This PR takes the size of the non-scalar operand: `n = rank() == 0 ? value.size() : size()`. Operands of nonzero rank already have to be the same size, so nothing else changes.
+
+## Tests
+
+`ScalarBroadcastEmptyTest` in `tests/test_basic_operations.cu` checks both operand orders against an empty array, checks that their sums are 0, and adds two guards on non-empty inputs.
+
+GPU runs on GH200 (`-DCUDA_ARCH=AUTO`, detected 90, CUDA 13.2, aarch64), `main` is ea6d469:
+
+| `parrot_tests` | cases passed | memcheck |
+|---|---|---|
+| `main` | 257/262 under memcheck (262/262 without) | 22 errors |
+| new test on `main`'s `parrot.hpp` | 262/263 (`size()` is 1, expected 0) | new test alone: 14 errors |
+| this PR | 263/263 | 0 errors |
+
+Same runs on B300 (`-DCUDA_ARCH=AUTO`, detected 103, CUDA 13.3, x86_64):
+
+| `parrot_tests` | cases passed | memcheck |
+|---|---|---|
+| new test on `main`'s `parrot.hpp` | 262/263; 86/263 under memcheck | 600 errors: one invalid read, then the sticky-error cascade; `#7` alone: 10 errors |
+| this PR | 263/263 | 0 errors |
+
+`ctest` 14/14 and all 26 examples pass on `main` on GH200. `clang-format-21 --dry-run --Werror` passes on both changed files.
