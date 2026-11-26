@@ -1343,17 +1343,17 @@ class fusion_array {
           std::is_void_v<ResultProperties>,
           default_properties_t<TransformIterator>,
           ResultProperties>;
-        auto op    = unary_functor(value, binary_op);
-        auto begin = thrust::make_transform_iterator(_begin, op);
-        auto end   = thrust::make_transform_iterator(_end, op);
+        auto op           = unary_functor(value, binary_op);
+        auto result_begin = thrust::make_transform_iterator(_begin, op);
+        auto result_end   = thrust::make_transform_iterator(_end, op);
         if constexpr (has_mask) {
             return _defer_masked_result<result_properties>(
-              begin, end, _mask_range.first, _mask_range.second);
+              result_begin, result_end, _mask_range.first, _mask_range.second);
         } else {
             return fusion_array<TransformIterator,
                                 no_mask_t,
                                 result_properties>(
-              begin, end, _owned_storage, _shape);
+              result_begin, result_end, _owned_storage, _shape);
         }
     }
 

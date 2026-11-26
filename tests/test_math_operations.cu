@@ -25,9 +25,9 @@
 
 TEST_CASE("Scalar maps retain pending selections without eager work") {
     test_detail::evaluation_counters counters;
-    auto values  = parrot::array({0, 2, 0, 4});
-    auto mask    = parrot::array({0, 2, 0, -1})
-                     .map(test_detail::observed_mask{counters.data()});
+    auto values = parrot::array({0, 2, 0, 4});
+    auto mask   = parrot::array({0, 2, 0, -1})
+                  .map(test_detail::observed_mask{counters.data()});
     auto observe = test_detail::observed_value{counters.data()};
     auto op      = [observe] __host__ __device__(int value, int scalar) {
         return observe(value) + scalar;
@@ -55,8 +55,8 @@ TEST_CASE("Masked scalar maps retain conversion and accumulator types") {
       });
     CHECK(array_scalar.to_host() == std::vector<double>{2.5, 3.5});
 
-    auto bytes   = parrot::array(std::vector<std::uint8_t>{200, 100, 7})
-                     .keep(parrot::array({1, -1, 0}));
+    auto bytes = parrot::array(std::vector<std::uint8_t>{200, 100, 7})
+                   .keep(parrot::array({1, -1, 0}));
     auto byte_op = [] __host__ __device__(std::uint8_t value,
                                           std::uint8_t scalar)
       -> std::uint8_t { return value + scalar; };
