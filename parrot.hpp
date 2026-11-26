@@ -1371,24 +1371,28 @@ class fusion_array {
      * @tparam UnaryFunctor The type of the unary functor
      * @param op The unary operation to apply
      * @return A new fusion_array with the operation applied
+     * @details A pending mask is retained without counting or copying its
+     * selected elements. Consumers evaluate op only at selected positions.
      */
     template <typename ResultProperties = void, typename UnaryFunctor>
     auto map(UnaryFunctor op) const {
+        using TransformIterator = thrust::transform_iterator<UnaryFunctor,
+                                                             Iterator>;
+        using result_properties = std::conditional_t<
+          std::is_void_v<ResultProperties>,
+          default_properties_t<TransformIterator>,
+          ResultProperties>;
+        auto begin = thrust::make_transform_iterator(_begin, op);
+        auto end   = thrust::make_transform_iterator(_end, op);
         if constexpr (has_mask) {
-            return apply().template map<ResultProperties>(op);
+            return _defer_masked_result<result_properties>(
+              begin, end, _mask_range.first, _mask_range.second);
         } else {
-            using TransformIterator = thrust::transform_iterator<UnaryFunctor,
-                                                                 Iterator>;
-            using result_properties = std::conditional_t<
-              std::is_void_v<ResultProperties>,
-              default_properties_t<TransformIterator>,
-              ResultProperties>;
-
             return fusion_array<TransformIterator,
                                 no_mask_t,
                                 result_properties>(
-              thrust::make_transform_iterator(_begin, op),
-              thrust::make_transform_iterator(_end, op),
+              begin,
+              end,
               _owned_storage,  // Pass ownership to derived array
               _shape);
         }

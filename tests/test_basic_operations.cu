@@ -250,3 +250,86 @@ TEST_CASE("ParrotTest - ScalarBroadcastEmptyTest") {
     CHECK_EQ((d.maxr() == d).sum().value(), 2);
     CHECK_EQ((d.maxr() + d.maxr()).value(), 6);
 }
+
+TEST_CASE("Masked map chains defer selection and skip rejected values") {
+    test_detail::evaluation_counters counters;
+    auto values = parrot::array({0, 2, 0, 4});
+    auto mask   = parrot::array({0, 2, 0, -1})
+                    .map(test_detail::observed_mask{counters.data()});
+    auto result = values.keep(mask)
+                    .map(test_detail::observed_value{counters.data()})
+                    .map(
+                      [] __host__ __device__(int value) { return value + 1; });
+
+    CHECK_EQ(counters.get(0), 0);
+    CHECK_EQ(counters.get(2), 0);
+    CHECK(result.storage() == values.storage());
+    CHECK(result.to_host() == std::vector<int>{51, 26});
+    CHECK_EQ(counters.get(0), 2);
+    CHECK_EQ(counters.get(1), 0);
+    CHECK_EQ(result.rank(), 1);
+    CHECK(result.shape() == std::vector<int>{2});
+
+    counters.reset();
+    CHECK_EQ(result.sum().value(), 77);
+    CHECK_EQ(counters.get(0), 2);
+    CHECK_EQ(counters.get(1), 0);
+    counters.reset();
+    CHECK_EQ(result.sum().value(), 77);
+    CHECK_EQ(counters.get(0), 2);  // Repeated consumers do not cache the map.
+}
+
+TEST_CASE("Masked maps preserve empty and nonbinary selections") {
+    auto increment = [] __host__ __device__(int value) { return value + 1; };
+    auto values    = parrot::array({2, 4, 8});
+    auto nonbinary = values.keep(parrot::array({0, 2, -1})).map(increment);
+    CHECK(nonbinary.to_host() == std::vector<int>{5, 9});
+    CHECK_EQ(nonbinary.sum().value(), 14);
+    CHECK(values.keep(parrot::array({1, 1, 1})).map(increment).to_host() ==
+          std::vector<int>{3, 5, 9});
+
+    auto empty = parrot::array(std::vector<int>{})
+                   .keep(parrot::array(std::vector<int>{}))
+                   .map(increment);
+    CHECK(empty.to_host().empty());
+    CHECK_EQ(empty.sum().value(), 0);
+
+    test_detail::evaluation_counters counters;
+    auto none = parrot::array({0, 0})
+                  .keep(parrot::array({0, 0}))
+                  .map(test_detail::observed_value{counters.data()});
+    CHECK(none.to_host().empty());
+    CHECK_EQ(none.sum().value(), 0);
+    CHECK_EQ(counters.get(0), 0);
+}
+
+TEST_CASE("Masked maps retain result types properties and source ownership") {
+    auto bytes    = parrot::array(std::vector<std::uint8_t>{200, 100, 7});
+    auto identity = [] __host__ __device__(std::uint8_t value) {
+        return value;
+    };
+    auto result = bytes.keep(parrot::array({1, 2, 0})).map(identity);
+    static_assert(std::is_same_v<typename decltype(result.sum())::value_type,
+                                 std::uint8_t>);
+    CHECK_EQ(result.sum().value(), 44);
+
+    auto booleans = result.map(
+      [] __host__ __device__(std::uint8_t value) { return value > 150; });
+    static_assert(
+      std::is_same_v<typename decltype(booleans.sum())::value_type, int>);
+    CHECK_EQ(booleans.sum().value(), 1);
+
+    using positive = parrot::properties<parrot::domain::positive>;
+    auto trusted   = parrot::range(3)
+                       .keep(parrot::array({0, 1, 1}))
+                       .map<positive>(
+                         [] __host__ __device__(int x) { return x; });
+    static_assert(
+      parrot::is_nonzero_v<typename decltype(trusted)::properties_type>);
+    CHECK_EQ(trusted.sum().value(), 5);
+
+    auto temporary = parrot::array({2, 4, 8})
+                       .filter([] __host__ __device__(int x) { return x > 2; })
+                       .map([] __host__ __device__(int x) { return x - 5; });
+    CHECK(temporary.to_host() == std::vector<int>{-1, 3});
+}
