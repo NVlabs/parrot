@@ -126,7 +126,6 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 30
     env:
-      PARROT_PYTHON_ENV: ${{ runner.temp }}/parrot-python-env
       CUDA_VISIBLE_DEVICES: '0'
     steps:
       - uses: actions/checkout@v4
@@ -136,8 +135,12 @@ jobs:
           cache: pip
           cache-dependency-path: python/requirements.txt
       - name: Install Python CUDA dependencies
+        env:
+          PARROT_PYTHON_ENV: ${{ runner.temp }}/parrot-python-env
         run: |
           python -m venv "$PARROT_PYTHON_ENV"
           "$PARROT_PYTHON_ENV/bin/python" -m pip install -r python/requirements.txt
       - name: Run Python and fusion GPU tests
+        env:
+          PARROT_PYTHON_ENV: ${{ runner.temp }}/parrot-python-env
         run: '"$PARROT_PYTHON_ENV/bin/python" -m pytest python -q'
