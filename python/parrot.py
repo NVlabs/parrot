@@ -12,10 +12,11 @@ from typing import Any, Callable, Optional, Tuple, Union
 import cupy as cp
 import numpy as np
 
+from _masked_iterator import MaskedIterator
+
 try:
     import cuda.compute.algorithms as algorithms
     import cuda.compute.iterators as iterators
-    import cuda.compute.types as cccl_types
 except ImportError as e:
     raise ImportError(
         "cuda.compute is required but not available.\n"
@@ -42,95 +43,61 @@ def from_cupy(arr):
 _global_rand_counter = 0
 
 
-def _binary_to_tuple_op(func):
-    """Convert a binary function (x, y) -> result to tuple form (t) -> result.
+_UNBOUND_SCALAR = object()
 
-    Uses AST transformation to create a new function without closures,
-    which is necessary for CUDA compilation with Numba.
 
-    Args:
-        func: A binary function or lambda like `lambda x, y: x + y`
+def _binary_to_tuple_op(func, scalar=_UNBOUND_SCALAR):
+    """Adapt source-visible binary functions without capturing a Python callable.
 
-    Returns:
-        A tuple-based function like `lambda t: t[0] + t[1]`
-
-    Raises:
-        ValueError: If the function cannot be converted
+    The CUDA Python compiler cannot type a captured ordinary Python function.
+    Preserve its body and globals, assigning the two operands before that body.
+    With a bound scalar the generated function takes one value; otherwise it
+    takes the tuple supplied by ZipIterator. No device values are evaluated.
     """
     try:
-        source = inspect.getsource(func)
-        source = textwrap.dedent(source).strip()
-
-        # Parse the source and find the lambda node
-        # The source might be just a lambda or a larger expression containing one
-        try:
-            tree = ast.parse(source, mode="eval")
-        except SyntaxError:
-            tree = ast.parse(source, mode="exec")
-
-        # Walk the tree to find the lambda node
-        lambda_node = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Lambda):
-                lambda_node = node
-                break
-
-        if lambda_node is None:
-            raise ValueError("Could not find lambda in source")
-
-        args = lambda_node.args.args
-        if len(args) != 2:
-            raise ValueError(f"Expected binary function with 2 args, got {len(args)}")
-
-        # Get parameter names
-        param1 = args[0].arg
-        param2 = args[1].arg
-
-        # Create transformer to replace param references with tuple indexing
-        class ParamReplacer(ast.NodeTransformer):
-            def visit_Name(self, node):
-                if node.id == param1:
-                    return ast.Subscript(
-                        value=ast.Name(id="t", ctx=ast.Load()),
-                        slice=ast.Constant(value=0),
-                        ctx=node.ctx,
-                    )
-                elif node.id == param2:
-                    return ast.Subscript(
-                        value=ast.Name(id="t", ctx=ast.Load()),
-                        slice=ast.Constant(value=1),
-                        ctx=node.ctx,
-                    )
-                return node
-
-        # Transform the body
-        new_body = ParamReplacer().visit(lambda_node.body)
-
-        # Create new lambda: lambda t: <transformed_body>
-        new_lambda = ast.Lambda(
-            args=ast.arguments(
-                posonlyargs=[],
-                args=[ast.arg(arg="t")],
-                kwonlyargs=[],
-                kw_defaults=[],
-                defaults=[],
-            ),
-            body=new_body,
-        )
-
-        # Wrap in Expression for eval
-        new_tree = ast.Expression(body=new_lambda)
-        ast.fix_missing_locations(new_tree)
-
-        # Compile and execute to get the new function
-        code = compile(new_tree, "<generated>", "eval")
-        return eval(code)  # noqa: S307
-
-    except Exception as e:
-        raise ValueError(
-            f"Could not convert binary op to tuple form: {e}. "
-            "Try using a tuple-based lambda instead: lambda t: t[0] * t[1]"
-        ) from e
+        parameters = list(inspect.signature(func).parameters)
+        if len(parameters) != 2:
+            raise ValueError("expected two parameters")
+        tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+        definitions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                       and n.name == func.__name__]
+        if definitions:
+            body = definitions[0].body
+        else:
+            expression = next(n for n in ast.walk(tree)
+                              if isinstance(n, ast.Lambda)
+                              and [a.arg for a in n.args.args] == parameters)
+            body = [ast.Return(expression.body)]
+        namespace = dict(func.__globals__)
+        namespace.update(inspect.getclosurevars(func).nonlocals)
+        argument = "parrot_operand"
+        while argument in parameters or argument in namespace:
+            argument += "_"
+        if scalar is _UNBOUND_SCALAR:
+            operands = [ast.Subscript(ast.Name(argument, ast.Load()), ast.Constant(i), ast.Load())
+                        for i in (0, 1)]
+        else:
+            bound = "parrot_bound_scalar"
+            while bound in parameters or bound in namespace:
+                bound += "_"
+            namespace[bound] = scalar
+            operands = [ast.Name(argument, ast.Load()), ast.Name(bound, ast.Load())]
+        prefix = ast.Assign(
+            targets=[ast.Tuple([ast.Name(p, ast.Store()) for p in parameters], ast.Store())],
+            value=ast.Tuple(operands, ast.Load()))
+        definition = ast.parse(f"def parrot_binary({argument}): pass").body[0]
+        definition.name = f"parrot_binary_{abs(hash((func.__code__, scalar))):x}"
+        definition.body = [prefix, *body]
+        module = ast.fix_missing_locations(ast.Module(body=[definition], type_ignores=[]))
+        exec(compile(module, "<parrot-binary>", "exec"), namespace)  # noqa: S102
+        result = namespace[definition.name]
+        annotations = getattr(func, "__annotations__", {})
+        result.__annotations__ = {"return": annotations["return"]} if "return" in annotations else {}
+        if scalar is not _UNBOUND_SCALAR and parameters[0] in annotations:
+            result.__annotations__[argument] = annotations[parameters[0]]
+        return result
+    except (OSError, TypeError, ValueError, StopIteration, SyntaxError) as error:
+        raise ValueError("Custom binary callbacks need inspectable source with two parameters") from error
 
 
 def _make_rand_op(extra_entropy: int):
@@ -224,13 +191,11 @@ class ParrotArray:
     def __init__(self, data=None, iterator=None, dtype=np.int32, mask=None, length=0):
         self._data = data
         self._iterator = iterator
-        self.dtype = dtype
+        self.dtype = np.dtype(dtype).type
         self._transforms = []
         self.length = length
-        # Track base CuPy array for lazy fusion (e.g., deltas().map_adj())
+        # Retain CuPy sources used by compound expressions.
         self._base_cupy = None
-        # Track offset info for adjacent-pair operations
-        self._adj_offset = 0  # How many adjacent-pair ops have been applied
         self._shape = None
         # Lazy mask support: stores a ParrotArray mask that will be applied lazily
         # When mask is set, operations can either work directly with the mask
@@ -253,10 +218,10 @@ class ParrotArray:
 
     @property
     def shape(self):
-        """Get the shape of the array."""
-        if self._shape is None:
-            return (self.length,)
-        return self._shape
+        """Logical shape; a masked expression counts its selected positions."""
+        if self.has_mask:
+            return (self.size(),)
+        return (self.length,) if self._shape is None else self._shape
 
     def __repr__(self):
         """Show a preview of the array contents."""
@@ -344,6 +309,12 @@ class ParrotArray:
 
     def _sanitize_op(self, op):
         """Give lambdas a valid CUDA name while preserving explicit annotations."""
+        # cuda.compute's Python compiler expects a Python function, rather than
+        # a built-in such as operator.add, for a custom reduction or scan.
+        for builtin, callback in ((operator.add, _reduce_add), (operator.mul, _reduce_mul),
+                                  (builtins.min, _reduce_min), (builtins.max, _reduce_max)):
+            if op is builtin:
+                return callback
         # Named functions can pass through unchanged; CUDA infers any
         # unannotated argument types from the iterator.
         name = getattr(op, "__name__", "")
@@ -436,29 +407,12 @@ class ParrotArray:
         return final_iterator
 
     def _get_nestable_iterator(self):
-        """Get composed iterator safe for use as a child of ZipIterator/PermutationIterator.
+        """Keep actual intermediate types when nesting lazy iterators.
 
-        For composed iterators (those with transforms), _get_composed_iterator
-        already sets value_type to the correct OUTPUT type, so no swap is needed.
-
-        For raw iterators (no transforms) whose value_type doesn't match the
-        expected output dtype (e.g. TransformIterators produced by prepend/append
-        whose value_type is set to their INPUT ZipValue type), we temporarily
-        swap to the output dtype so parent iterators build correct type metadata,
-        then restore afterward.
-
-        Returns (iterator, restore_func) — caller MUST call restore_func() after
-        constructing the parent iterator.
+        The declared array dtype controls stored output, not the value type of
+        an intermediate map. Rewriting backend type metadata loses precision.
         """
-        it = self._get_composed_iterator()
-        if not hasattr(it, "value_type"):
-            return it, lambda: None
-        output_td = cccl_types.from_numpy_dtype(self.dtype)
-        if it.value_type != output_td:
-            saved = it._value_type
-            it._value_type = output_td
-            return it, lambda: setattr(it, "_value_type", saved)
-        return it, lambda: None
+        return self._get_composed_iterator(), lambda: None
 
     def range(self, n: int, dtype=np.int32):
         """Create a counting iterator with 'n' elements starting from 0."""
@@ -475,58 +429,38 @@ class ParrotArray:
         return self
 
     def drop(self, n: int):
-        """Skip the first n elements.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Args:
-            n: Number of elements to drop from the beginning
-
-        Returns:
-            A new ParrotArray without the first n elements
-
-        Raises:
-            ValueError: If n < 0 or n > size()
-        """
-        # Apply mask if present before drop operation
+        """Skip a logical prefix; unmasked inputs remain indexed expressions."""
         if self.has_mask:
             return self._apply_mask_if_needed().drop(n)
-
         if self._iterator is None:
             raise ValueError("No data source.")
-        if n < 0:
-            raise ValueError("Cannot drop negative elements")
-        if n > self.length:
-            raise ValueError(
-                f"Cannot drop {n} elements from array of size {self.length}"
-            )
-
+        if n < 0 or n > self.length:
+            raise ValueError(f"Cannot drop {n} elements from array of size {self.length}")
         if n == 0:
             return self._clone()
-
-        if n == self.length:
-            return self._empty_result()
-
-        # Materialize and slice
-        d_data = self.collect()
-        d_dropped = d_data[n:].copy()
-
-        result = ParrotArray(data=d_dropped, dtype=self.dtype)
-        result._iterator = d_dropped
-        result.length = self.length - n
-        return result
+        return self._indexed_view(iterators.CountingIterator(np.int64(n)), self.length - n)
 
     def _clone(self):
-        """Create a shallow copy of the array."""
-        new_obj = ParrotArray(
-            data=self._data, iterator=self._iterator, dtype=self.dtype, mask=self._mask
-        )
-        new_obj.length = self.length
-        new_obj._transforms = list(self._transforms)
-        new_obj._base_cupy = self._base_cupy
-        new_obj._adj_offset = self._adj_offset
-        new_obj._shape = self._shape
-        return new_obj
+        """Snapshot expression metadata while sharing its source storage."""
+        result = ParrotArray(data=self._data, iterator=self._iterator,
+                             dtype=self.dtype, mask=self._mask, length=self.length)
+        result._transforms = list(self._transforms)
+        result._base_cupy = self._base_cupy
+        result._shape = self._shape
+        result._pair_parts = self._pair_parts
+        return result
+
+    def _indexed_view(self, indices, length, shape=None):
+        """Compose an index mapping without storing source values."""
+        source = self._get_composed_iterator()
+        result = ParrotArray(iterator=iterators.PermutationIterator(source, indices),
+                             dtype=self.dtype, length=length)
+        result._shape = shape
+        return result
+
+    def rank(self):
+        """Logical rank; a pending selection is a vector."""
+        return 1 if self.has_mask else len(self.shape)
 
     def _empty_result(self):
         """Create an empty ParrotArray with this array's dtype."""
@@ -536,46 +470,25 @@ class ParrotArray:
         return result
 
     def _apply_mask_if_needed(self):
-        """Apply the lazy mask if present, returning a new ParrotArray with filtered data.
-
-        This is the equivalent of copy_if/select - it materializes the mask by
-        actually filtering the data. Operations that need contiguous filtered
-        data should call this first.
-
-        Returns:
-            If no mask: returns self unchanged
-            If has mask: returns a new ParrotArray with the mask applied (filtered data)
-        """
+        """Stably select values, checking the mask before reading a producer."""
         if not self.has_mask:
             return self
-
-        # Perform the actual selection (copy_if equivalent)
-        mask = self._mask
-
-        # Materialize mask to a raw array so the select kernel sees correct types
-        d_mask = mask.collect()
-
-        # Use module-level predicate for JIT caching
-        pred = _keep_pred
-        d_out = cp.empty(self.length, dtype=self.dtype)
-        d_num_selected = cp.empty(1, dtype=np.int32)
-        self_it, restore_self = self._get_nestable_iterator()
-        in_iter = iterators.ZipIterator(self_it, d_mask)
-        restore_self()
-        out_iter = iterators.ZipIterator(d_out, iterators.DiscardIterator())
-
-        algorithms.select(d_in=in_iter, d_out=out_iter, d_num_selected_out=d_num_selected, cond=pred, num_items=self.length)
-
-        out_len = int(d_num_selected.get()[0])
-        if out_len == 0:
-            return self._empty_result()
-
-        d_kept = d_out[:out_len]
-        result = ParrotArray(data=d_kept, dtype=self.dtype)
-        result._iterator = d_kept
-        result.length = out_len
-        # Note: mask is NOT copied - the result is unmasked
-        return result
+        if self.length == 0:
+            return from_cupy(cp.empty(0, dtype=self.dtype))
+        mask = self._mask._get_composed_iterator()
+        values = MaskedIterator(self._get_composed_iterator(), mask)
+        inputs = iterators.ZipIterator(values, mask)
+        output = cp.empty(self.length, dtype=self.dtype)
+        count = cp.empty(1, dtype=np.int32)
+        algorithms.select(
+            d_in=inputs,
+            d_out=iterators.ZipIterator(output, iterators.DiscardIterator()),
+            d_num_selected_out=count,
+            cond=_keep_pred,
+            num_items=self.length,
+        )
+        length = int(count.get()[0])
+        return from_cupy(output[:length])
 
     def apply(self):
         """Force application of any lazy mask, returning a materialized array.
@@ -651,8 +564,7 @@ class ParrotArray:
         def square_op(x):
             return x * x
 
-        self._transforms.append(square_op)
-        return self
+        return self.map(square_op)
 
     def abs(self):
         """Take absolute value of each element."""
@@ -660,64 +572,50 @@ class ParrotArray:
         def abs_op(x):
             return x if x >= 0 else -x
 
-        self._transforms.append(abs_op)
-        return self
+        return self.map(abs_op)
 
     def map(self, op: Callable):
-        """Apply a custom transformation function."""
-        self._transforms.append(self._sanitize_op(op))
-        return self
+        """Return an independent lazy map, retaining any pending selection."""
+        result = self._clone()
+        result._transforms.append(self._sanitize_op(op))
+        return result
 
     def map2(self, other, op: Callable) -> "ParrotArray":
-        """Apply a binary operation element-wise with a scalar or another array.
+        """Compose a raw-scalar map or an array zip-map.
 
-        Mirrors C++ fusion_array::map2: accepts a scalar or a ParrotArray and a
-        binary functor ``(a, b) -> value``.  For scalars the functor is
-        partially applied and fused as a TransformIterator; for arrays a
-        ZipIterator + TransformIterator is used.  Both paths are fully lazy.
-
-        Args:
-            other: A scalar (int/float) or a ParrotArray
-            op: A binary function ``(a, b) -> value``
-
-        Returns:
-            A new ParrotArray with the operation applied lazily
+        Raw scalars retain pending masks. Array operands compact selections
+        before logical alignment; rank-zero scalars broadcast without copying.
+        A length-one vector is not a rank-zero scalar.
         """
-        if self.has_mask:
-            return self._apply_mask_if_needed().map2(other, op)
-
         if isinstance(other, (int, float, np.number)):
             binder = _OP_TO_SCALAR_BIND.get(op)
             if binder is not None:
-                return self._clone().map(binder(other))
-            _val = other
-            def bound_op(x):
-                return op(x, _val)
-            return self._clone().map(bound_op)
-
-        if isinstance(other, ParrotArray):
-            if other.has_mask:
-                return self.map2(other._apply_mask_if_needed(), op)
-
-            if self.length != other.length:
-                raise ValueError(f"Shape mismatch: {self.length} vs {other.length}")
-
-            zip_op = _OP_TO_ZIP.get(op)
-            if zip_op is None:
-                def zip_op(t):
-                    return op(t[0], t[1])
-
-            a, restore_a = self._get_nestable_iterator()
-            b, restore_b = other._get_nestable_iterator()
-            zip_iter = iterators.ZipIterator(a, b)
-            restore_a()
-            restore_b()
-
-            result = ParrotArray(iterator=zip_iter, dtype=self.dtype, length=self.length)
-            result._shape = self._shape
-            return result.map(zip_op)
-
-        raise TypeError(f"map2: unsupported operand type {type(other)}")
+                return self.map(binder(other))
+            return self.map(_binary_to_tuple_op(op, scalar=other))
+        if not isinstance(other, ParrotArray):
+            raise TypeError(f"map2: unsupported operand type {type(other)}")
+        if self.has_mask:
+            return self._apply_mask_if_needed().map2(other, op)
+        if other.has_mask:
+            return self.map2(other._apply_mask_if_needed(), op)
+        left_scalar, right_scalar = self.rank() == 0, other.rank() == 0
+        if not left_scalar and not right_scalar and self.length != other.length:
+            raise ValueError(f"Shape mismatch: {self.length} vs {other.length}")
+        length = other.length if left_scalar else self.length
+        a = self._get_composed_iterator()
+        b = other._get_composed_iterator()
+        if left_scalar:
+            a = iterators.PermutationIterator(a, iterators.ConstantIterator(np.int64(0)))
+        if right_scalar:
+            b = iterators.PermutationIterator(b, iterators.ConstantIterator(np.int64(0)))
+        zip_op = _OP_TO_ZIP.get(op)
+        if zip_op is None:
+            zip_op = _binary_to_tuple_op(op)
+        result = ParrotArray(iterator=iterators.ZipIterator(a, b),
+                             dtype=np.result_type(self.dtype, other.dtype).type,
+                             length=length)
+        result._shape = other._shape if self.rank() < other.rank() else self._shape
+        return result.map(zip_op)
 
     def neg(self):
         """Negate each element."""
@@ -725,8 +623,7 @@ class ParrotArray:
         def neg_op(x):
             return -x
 
-        self._transforms.append(neg_op)
-        return self
+        return self.map(neg_op)
 
     def double(self):
         """Double each element (multiply by 2)."""
@@ -734,8 +631,7 @@ class ParrotArray:
         def double_op(x):
             return x * 2
 
-        self._transforms.append(double_op)
-        return self
+        return self.map(double_op)
 
     def half(self):
         """Halve each element (divide by 2)."""
@@ -743,8 +639,7 @@ class ParrotArray:
         def half_op(x):
             return x / 2
 
-        self._transforms.append(half_op)
-        return self
+        return self.map(half_op)
 
     def even(self):
         """Check if each element is even (returns 1 for even, 0 for odd)."""
@@ -752,8 +647,7 @@ class ParrotArray:
         def even_op(x):
             return 1 if x % 2 == 0 else 0
 
-        self._transforms.append(even_op)
-        return self
+        return self.map(even_op)
 
     def odd(self):
         """Check if each element is odd (returns 1 for odd, 0 for even)."""
@@ -761,8 +655,7 @@ class ParrotArray:
         def odd_op(x):
             return 1 if x % 2 == 1 else 0
 
-        self._transforms.append(odd_op)
-        return self
+        return self.map(odd_op)
 
     def sqrt(self):
         """Take square root of each element."""
@@ -770,8 +663,7 @@ class ParrotArray:
         def sqrt_op(x):
             return x**0.5
 
-        self._transforms.append(sqrt_op)
-        return self
+        return self.map(sqrt_op)
 
     def exp(self):
         """Take exponential (e^x) of each element."""
@@ -783,8 +675,7 @@ class ParrotArray:
             return _exp(x)
 
         exp_op.__annotations__ = {"x": self.dtype, "return": self.dtype}
-        self._transforms.append(exp_op)
-        return self
+        return self.map(exp_op)
 
     def log(self):
         """Take natural logarithm of each element."""
@@ -796,8 +687,7 @@ class ParrotArray:
             return _log(x)
 
         log_op.__annotations__ = {"x": self.dtype, "return": self.dtype}
-        self._transforms.append(log_op)
-        return self
+        return self.map(log_op)
 
     def div(self, arg):
         """Divide each element by a scalar or another array."""
@@ -828,7 +718,14 @@ class ParrotArray:
         return self.map2(arg, lte_op)
 
     def sum(self, axis: int = 0):
-        """Sum all elements using reduction."""
+        """Sum selected values without a compacted input buffer on axis zero."""
+        if np.dtype(self.dtype) == np.dtype(bool):
+            return self.astype(np.int32).sum(axis=axis)
+        if self.has_mask and axis == 0:
+            values = MaskedIterator(self._get_composed_iterator(),
+                                    self._mask._get_composed_iterator())
+            return ParrotArray(iterator=values, dtype=self.dtype,
+                               length=self.length).reduce(_reduce_add, 0)
         return self.reduce(_reduce_add, 0, axis=axis)
 
     def prod(self, axis: int = 0):
@@ -891,6 +788,8 @@ class ParrotArray:
         op = self._sanitize_op(op)
 
         if axis == 0:
+            if self.length == 0:
+                return np.asarray(init_value, dtype=self.dtype).item()
             final_iterator = self._get_composed_iterator()
 
             # Set up reduction
@@ -951,50 +850,21 @@ class ParrotArray:
         raise ValueError(f"Unsupported axis: {axis}. Use 0 (global) or 1/2 (row-wise).")
 
     def scan(self, op: Callable = None, init_value: Any = 0):
-        """Perform inclusive scan operation.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-        """
-        # Apply mask if present before scan operation
-        if self.has_mask:
-            return self._apply_mask_if_needed().scan(op, init_value)
-
-        if op is None:
-            op = _reduce_add
-
-        op = self._sanitize_op(op)
-        final_iterator = self._get_composed_iterator()
-
-        # Set up scan
-        h_init = np.array([init_value], dtype=self.dtype)
-        d_output = cp.empty(self.length, dtype=self.dtype)
-
-        # Instantiate scan
-        algorithms.inclusive_scan(d_in=final_iterator, d_out=d_output, op=op, init_value=h_init, num_items=self.length)
-
-        return d_output.get()
+        """Inclusive scan; preserve the generic scan's NumPy output contract."""
+        return self._scan_to_array(_reduce_add if op is None else op, init_value).collect().get()
 
     def _scan_to_array(self, op: Callable, init_value: Any):
-        """Perform scan and return result as ParrotArray for chaining.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-        """
-        # Apply mask if present before scan operation
+        """Consume a mapped iterator and store scan output for chaining."""
         if self.has_mask:
             return self._apply_mask_if_needed()._scan_to_array(op, init_value)
-
-        op = self._sanitize_op(op)
-        final_iterator = self._get_composed_iterator()
-
-        h_init = np.array([init_value], dtype=self.dtype)
-        d_output = cp.empty(self.length, dtype=self.dtype)
-
-        algorithms.inclusive_scan(d_in=final_iterator, d_out=d_output, op=op, init_value=h_init, num_items=self.length)
-
-        result = ParrotArray(data=d_output, dtype=self.dtype)
-        result._iterator = d_output
-        result.length = self.length
-        return result
+        output = cp.empty(self.length, dtype=self.dtype)
+        if self.length:
+            algorithms.inclusive_scan(
+                d_in=self._get_composed_iterator(), d_out=output,
+                op=self._sanitize_op(op), init_value=np.array([init_value], dtype=self.dtype),
+                num_items=self.length,
+            )
+        return from_cupy(output)
 
     def sums(self):
         """Cumulative sum scan."""
@@ -1043,6 +913,9 @@ class ParrotArray:
         if self.has_mask:
             return self._apply_mask_if_needed().collect()
 
+        if self.length == 0:
+            return cp.empty(self.shape, dtype=self.dtype)
+
         # Fast path: if data is already a raw CuPy array with no transforms, return it directly
         if self._data is not None and not self._transforms:
             arr = self._data
@@ -1079,80 +952,31 @@ class ParrotArray:
         return d_output
 
     def size(self):
-        """Return the number of elements in the array.
-
-        For masked arrays, this returns the count of elements where mask is truthy.
-        This is computed lazily without materializing the filtered array.
-        """
+        """Count nonzero mask entries without evaluating the value producer."""
         if self.has_mask:
-            # Count the number of truthy mask values
-            return self._mask.gt(0).sum()
+            counts = self._mask.map(_count_truth)
+            counts.dtype = np.int64
+            return int(counts.sum())
         return self.length
 
     def value(self):
-        """Extract the scalar value from a single-element array.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Returns:
-            The first element as a Python scalar.
-        """
-        result = self.collect()  # collect() handles mask application
-        if len(result) == 0:
+        """Read the first logical value, including a rank-zero scalar."""
+        values = self.collect().reshape(-1)
+        if values.size == 0:
             raise ValueError("Cannot get value from empty array")
-        return result[0].get().item()
+        return values[0].get().item()
 
-    def _make_adj_iter(self, d_data, offset, transforms):
-        """Create iterator for adjacent pairs: applies transforms to zip(d_data[i], d_data[i+offset])."""
-        it = iterators.ZipIterator(d_data[:-offset], d_data[offset:])
-        for t in transforms:
-            it = iterators.TransformIterator(it, t)
-        return it
 
     def map_adj(self, op: Callable):
-        """Apply a binary operation to adjacent pairs of elements.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Args:
-            op: A binary function that takes (a, b) and returns a result
-
-        Returns:
-            A new ParrotArray with length-1 elements containing op(arr[i], arr[i+1])
-
-        LAZY operation — materializes input first to ensure correct random access
-        via PermutationIterator.
-        """
+        """Map adjacent logical values using two lazy indexed inputs."""
         if self.has_mask:
             return self._apply_mask_if_needed().map_adj(op)
-
         if self.length < 2:
             return self._empty_result()
-
-        zip_op = _OP_TO_ZIP.get(op)
-        if zip_op is None:
-            raise ValueError(
-                f"map_adj only supports known binary ops: {', '.join(op.__name__ for op in _OP_TO_ZIP.keys())}"
-            )
-
-        # Materialize so PermutationIterator has a raw array for random access
-        d_data = self.collect()
-        tuple_op = self._sanitize_op(zip_op)
-
-        idx_iter = iterators.CountingIterator(np.int32(0))
-        idx_next_iter = iterators.TransformIterator(
-            iterators.CountingIterator(np.int32(0)), _plus_one
-        )
-
-        iter_a = iterators.PermutationIterator(d_data, idx_iter)
-        iter_b = iterators.PermutationIterator(d_data, idx_next_iter)
-        zip_iter = iterators.ZipIterator(iter_a, iter_b)
-
-        result = ParrotArray(iterator=zip_iter, dtype=self.dtype)
-        result.length = self.length - 1
-        result._transforms.append(tuple_op)
-        result._base_cupy = d_data
-        return result
+        length = self.length - 1
+        left = self._indexed_view(iterators.CountingIterator(np.int64(0)), length)
+        right = self._indexed_view(iterators.CountingIterator(np.int64(1)), length)
+        return left.map2(right, op)
 
     def differ(self):
         """Check if adjacent elements are different.
@@ -1179,6 +1003,9 @@ class ParrotArray:
         Returns:
             A new ParrotArray with the value at the beginning
         """
+
+        if self.has_mask:
+            return self._apply_mask_if_needed().prepend(value)
         if self.length == 0:
             result = ParrotArray(dtype=self.dtype)
             result._iterator = iterators.ConstantIterator(self.dtype(value))
@@ -1218,6 +1045,9 @@ class ParrotArray:
         Returns:
             A new ParrotArray with the value at the end
         """
+
+        if self.has_mask:
+            return self._apply_mask_if_needed().append(value)
         if self.length == 0:
             result = ParrotArray(dtype=self.dtype)
             result._iterator = iterators.ConstantIterator(self.dtype(value))
@@ -1263,30 +1093,15 @@ class ParrotArray:
         return range(self.length, dtype=self.dtype).keep(self) + 1
 
     def rev(self):
-        """Reverse the array.
-
-        SEMI-LAZY operation - uses ReverseIterator if data is already materialized,
-        otherwise collects first (reverse requires random access to the data).
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Returns:
-            A new ParrotArray with elements in reverse order
-        """
-        # Must have materialized data for reverse (need random access)
-        # Collect if we only have a transform chain (or mask)
-        if self._data is not None and not self._transforms and not self.has_mask:
-            d_data = self._data
-        else:
-            d_data = self.collect()  # collect() handles mask application
-
-        # Use ReverseIterator for lazy reverse access
-        rev_iter = iterators.ReverseIterator(d_data)
-
-        result = ParrotArray(dtype=self.dtype)
-        result._iterator = rev_iter
-        result.length = len(d_data)
-        result._base_cupy = d_data  # Keep reference to prevent GC
+        """Reverse value and mask iterators without counting or copying."""
+        length = self.length
+        def reverse_index(i):
+            return length - 1 - i
+        indices = iterators.TransformIterator(iterators.CountingIterator(np.int64(0)), reverse_index)
+        result = self._indexed_view(indices, length, self._shape)
+        if self.has_mask:
+            result._mask = self._mask.rev()
+            result._shape = None
         return result
 
     def sort(self):
@@ -1307,30 +1122,18 @@ class ParrotArray:
         return result
 
     def back(self):
-        """Get the last element of the array.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Returns:
-            The last element as a Python scalar
-        """
-        d_data = self.collect()  # collect() handles mask application
-        if len(d_data) == 0:
+        """Read the last logical value."""
+        values = self.collect().reshape(-1)
+        if values.size == 0:
             raise ValueError("Cannot get back from empty array")
-        return d_data[-1].get().item()
+        return values[-1].get().item()
 
     def front(self):
-        """Get the first element of the array.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Returns:
-            The first element as a Python scalar
-        """
-        d_data = self.collect()  # collect() handles mask application
-        if len(d_data) == 0:
+        """Read the first logical value."""
+        values = self.collect().reshape(-1)
+        if values.size == 0:
             raise ValueError("Cannot get front from empty array")
-        return d_data[0].get().item()
+        return values[0].get().item()
 
     def uniq(self):
         """Remove adjacent duplicate elements.
@@ -1392,6 +1195,9 @@ class ParrotArray:
         Returns:
             A new ParrotArray with one reduced value per group
         """
+
+        if self.has_mask:
+            return self._apply_mask_if_needed().chunk_by_reduce(pred, op)
         # Apply mask if present (collect handles this)
         if self.length == 0:
             return self._empty_result()
@@ -1429,6 +1235,11 @@ class ParrotArray:
         Returns:
             A new ParrotArray with elementwise minimum values
         """
+
+        if self.has_mask:
+            return self._apply_mask_if_needed().min_with(other)
+        if isinstance(other, ParrotArray) and other.has_mask:
+            return self.min_with(other._apply_mask_if_needed())
         # Apply masks if present (collect handles this)
         d_self = self.collect()
         d_other = other.collect()
@@ -1454,6 +1265,11 @@ class ParrotArray:
         Returns:
             A new ParrotArray with elementwise maximum values
         """
+
+        if self.has_mask:
+            return self._apply_mask_if_needed().max_with(other)
+        if isinstance(other, ParrotArray) and other.has_mask:
+            return self.max_with(other._apply_mask_if_needed())
         # Apply masks if present (collect handles this)
         d_self = self.collect()
         d_other = other.collect()
@@ -1479,6 +1295,11 @@ class ParrotArray:
         Returns:
             True if all elements are equal, False otherwise
         """
+
+        if self.has_mask:
+            return self._apply_mask_if_needed().match(other)
+        if isinstance(other, ParrotArray) and other.has_mask:
+            return self.match(other._apply_mask_if_needed())
         # Apply masks if present (collect handles this)
         d_self = self.collect()
         d_other = other.collect()
@@ -1489,117 +1310,45 @@ class ParrotArray:
         return bool(cp.all(d_self == d_other))
 
     def keep(self, mask):
-        """Keep elements where the mask is truthy (LAZY operation).
-
-        This is a lazy operation - the mask is stored but not immediately applied.
-        The actual filtering (copy_if/select) only happens when:
-        - A reduction operation (sum, max, etc.) is called
-        - collect() is called to materialize the array
-        - Operations that require contiguous data (sort, uniq, etc.) are called
-        - apply() is explicitly called
-
-        This allows operations like .keep(mask).sum() to potentially use
-        optimized masked reduction without materializing the filtered array.
-
-        Args:
-            mask: A ParrotArray mask (same length) with truthy values to keep
-
-        Returns:
-            A new ParrotArray with lazy mask stored (not yet applied)
-        """
-        if self.length == 0:
-            return self._empty_result()
-
-        # Convert mask to ParrotArray if needed
-        if isinstance(mask, ParrotArray):
-            if mask.length != self.length:
-                raise ValueError(f"Shape mismatch: {self.length} vs {mask.length}")
-            mask_arr = mask
-        else:
-            d_mask = cp.asarray(mask, dtype=np.int32)
-            if len(d_mask) != self.length:
-                raise ValueError(f"Shape mismatch: {self.length} vs {len(d_mask)}")
-            mask_arr = ParrotArray(data=d_mask, dtype=np.int32)
-            mask_arr._iterator = d_mask
-            mask_arr.length = len(d_mask)
-
-        # If we already have a mask, we need to combine them (AND operation)
-        # For now, apply the existing mask first, then store the new one
+        """Retain a pending mask, aligning an existing selection first."""
         if self.has_mask:
-            # Apply existing mask, then add new mask
-            unmasked = self._apply_mask_if_needed()
-            return unmasked.keep(mask_arr)
-
-        # Create a new array with the mask stored lazily
+            return self._apply_mask_if_needed().keep(mask)
+        if isinstance(mask, ParrotArray):
+            mask = mask._apply_mask_if_needed() if mask.has_mask else mask._clone()
+        else:
+            mask = array(mask)
+        if mask.length != self.length:
+            raise ValueError(f"Shape mismatch: {self.length} vs {mask.length}")
         result = self._clone()
-        result._mask = mask_arr
+        result._mask = mask
+        result._shape = None
         return result
 
     def take(self, n: int):
-        """Take the first n elements of the array.
-
-        LAZY operation - just adjusts the length without materializing or copying.
-        Since iterators are positional streams, reducing the length is sufficient.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Args:
-            n: Number of elements to take
-
-        Returns:
-            A new ParrotArray with the first n elements
-
-        Raises:
-            ValueError: If n < 0 or n > size()
-        """
-        # Apply mask if present before take operation
+        """Take a logical prefix without storing an unmasked producer."""
         if self.has_mask:
             return self._apply_mask_if_needed().take(n)
-
         if n < 0 or n > self.length:
             raise ValueError(f"take: n must be between 0 and {self.length}, got {n}")
-
-        if n == 0:
-            return self._empty_result()
-
         result = self._clone()
         result.length = n
+        result._shape = None
         return result
 
     def filter(self, predicate):
-        """Filter elements based on a predicate function.
-
-        For masked arrays, the mask is applied first (materializing the filter),
-        then the predicate filter is applied.
-
-        Args:
-            predicate: A function that takes an element and returns True to keep it
-
-        Returns:
-            A new ParrotArray with only the elements for which predicate returns True
-        """
-        # Apply mask if present before filter operation
-        if self.has_mask:
-            return self._apply_mask_if_needed().filter(predicate)
-
+        """Retain a predicate mask; reject old positions before running a new predicate."""
+        result = self._clone()
         if self.length == 0:
-            return self._empty_result()
-
-        pred = self._sanitize_predicate(predicate)
-        d_out = cp.empty(self.length, dtype=self.dtype)
-        d_num_selected = cp.empty(1, dtype=np.int32)
-        in_iter = self._get_composed_iterator()
-
-        algorithms.select(d_in=in_iter, d_out=d_out, d_num_selected_out=d_num_selected, cond=pred, num_items=self.length)
-
-        out_len = int(d_num_selected.get()[0])
-        if out_len == 0:
-            return self._empty_result()
-
-        d_kept = d_out[:out_len]
-        result = ParrotArray(data=d_kept, dtype=self.dtype)
-        result._iterator = d_kept
-        result.length = out_len
+            mask = constant(0, 0, dtype=np.uint8)
+        else:
+            predicate_values = iterators.TransformIterator(
+                self._get_composed_iterator(), self._sanitize_op(predicate))
+            if self.has_mask:
+                predicate_values = MaskedIterator(predicate_values, self._mask._get_composed_iterator())
+            mask = ParrotArray(iterator=predicate_values,
+                               dtype=predicate_values.value_type.dtype.type, length=self.length)
+        result._mask = mask
+        result._shape = None
         return result
 
     def sign(self):
@@ -1612,8 +1361,7 @@ class ParrotArray:
         def sign_op(x):
             return 1 if x > 0 else (-1 if x < 0 else 0)
 
-        self._transforms.append(sign_op)
-        return self
+        return self.map(sign_op)
 
     def rand(self):
         """Generate random integers between 0 and each element.
@@ -1711,33 +1459,14 @@ class ParrotArray:
         return self.map2(arg, neq_op)
 
     def gather(self, indices):
-        """Gather elements at the specified indices (lazy permutation iterator).
-
-        Like the C++ fusion_array::gather, this returns a new ParrotArray backed
-        by a PermutationIterator so no data is materialized — the gather is
-        fused into subsequent kernels.
-
-        For masked arrays, the mask is applied first (materializing the filter).
-
-        Args:
-            indices: A ParrotArray of indices to gather
-
-        Returns:
-            A new ParrotArray with elements at the specified indices
-        """
-        # If masked, we need contiguous data first (mask -> select)
+        """Compose valid zero-based logical indices; compact masked operands first."""
+        if not isinstance(indices, ParrotArray):
+            raise TypeError("gather: indices must be a ParrotArray")
         source = self._apply_mask_if_needed() if self.has_mask else self
-
-        base_iter, restore_base = source._get_nestable_iterator()
-        idx_iter, restore_idx = indices._get_nestable_iterator()
-
-        perm_iter = iterators.PermutationIterator(base_iter, idx_iter)
-        restore_base()
-        restore_idx()
-
-        result = ParrotArray(iterator=perm_iter, dtype=self.dtype)
-        result.length = indices.length
-        return result
+        indices = indices._apply_mask_if_needed() if indices.has_mask else indices
+        if not np.issubdtype(indices.dtype, np.integer):
+            raise TypeError("gather: indices must have integer dtype")
+        return source._indexed_view(indices._get_composed_iterator(), indices.length)
 
     def reshape(self, shape):
         """Reshape the array to the specified dimensions.
@@ -1752,6 +1481,8 @@ class ParrotArray:
             ValueError: If the total size of the new shape exceeds the current size
                        or if trying to reshape to/from empty shape invalidly.
         """
+        if self.has_mask:
+            return self._apply_mask_if_needed().reshape(shape)
         if isinstance(shape, int):
             shape = (shape,)
 
@@ -1783,6 +1514,8 @@ class ParrotArray:
         Returns:
             A new ParrotArray with the same data but flattened to 1D.
         """
+        if self.has_mask:
+            return self._apply_mask_if_needed().flatten()
         return self.reshape((self.length,))
 
     def cycle(self, shape):
@@ -1872,7 +1605,7 @@ class ParrotArray:
     def astype(self, dtype):
         """Convert the array to a different dtype.
 
-        For masked arrays, the mask is applied first (materializing the filter).
+        Pending masks are retained through the lazy cast.
 
         Args:
             dtype: The target numpy dtype (e.g., np.float32, np.int64)
@@ -1880,10 +1613,6 @@ class ParrotArray:
         Returns:
             A new ParrotArray with the specified dtype
         """
-        # Apply mask if present before type conversion
-        if self.has_mask:
-            return self._apply_mask_if_needed().astype(dtype)
-
         # LAZY: add a cast transform
         src_dtype = self.dtype
 
@@ -1905,6 +1634,7 @@ class ParrotArray:
         result._transforms.append(cast_op)
         result.length = self.length
         result._shape = self._shape
+        result._mask = self._mask
         return result
 
     def replicate(self, arg):
@@ -1957,9 +1687,6 @@ class ParrotArray:
         if n == 1:
             return self._clone()
 
-        # Materialize so PermutationIterator has a raw array for random access
-        d_data = self.collect()
-
         def replicate_index_op(idx):
             return idx // n
 
@@ -1968,12 +1695,7 @@ class ParrotArray:
         index_iter = iterators.TransformIterator(
             iterators.CountingIterator(np.int32(0)), replicate_index_op
         )
-        replicate_iter = iterators.PermutationIterator(d_data, index_iter)
-
-        result = ParrotArray(iterator=replicate_iter, dtype=self.dtype)
-        result.length = self.length * n
-        result._base_cupy = d_data
-        return result
+        return self._indexed_view(index_iter, self.length * n)
 
     def _replicate_by_mask(self, mask: "ParrotArray") -> "ParrotArray":
         """Mask-based replicate (materializing): element i repeated mask[i] times.
@@ -2019,25 +1741,14 @@ class ParrotArray:
         return result
 
     def repeat(self, n: int):
-        """Repeat a scalar value n times to create a 1D array.
-
-        Only works on single-element (scalar) arrays.
-        For arrays with more elements, use replicate() or cycle() instead.
-
-        Args:
-            n: Number of repetitions (must be > 0)
-
-        Returns:
-            A new ParrotArray of length n with the scalar value repeated
-
-        Raises:
-            ValueError: If the array has more than one element or n <= 0
-        """
+        """Repeat a single logical value without reading it at construction."""
+        if self.has_mask:
+            return self._apply_mask_if_needed().repeat(n)
         if self.length != 1:
             raise ValueError("repeat: array must be a scalar (length 1)")
         if n <= 0:
             raise ValueError("repeat: n must be > 0")
-        return constant(self.front(), n, self.dtype)
+        return self._indexed_view(iterators.ConstantIterator(np.int64(0)), n)
 
     def cross(self, other):
         """Cartesian product with another array (lazy).
@@ -2054,6 +1765,10 @@ class ParrotArray:
         Returns:
             A new ParrotArray backed by a ZipIterator over the expanded arrays
         """
+        if self.has_mask:
+            return self._apply_mask_if_needed().cross(other)
+        if other.has_mask:
+            return self.cross(other._apply_mask_if_needed())
         if self.length == 0 or other.length == 0:
             raise ValueError("cross: arrays must not be empty")
 
@@ -2099,6 +1814,11 @@ class ParrotArray:
             TypeError: If ``other`` is not a ParrotArray.
             ValueError: If the two arrays have different lengths.
         """
+
+        if self.has_mask:
+            return self._apply_mask_if_needed().pairs(other)
+        if isinstance(other, ParrotArray) and other.has_mask:
+            return self.pairs(other._apply_mask_if_needed())
         if self.has_mask:
             return self._apply_mask_if_needed().pairs(other)
         if not isinstance(other, ParrotArray):
@@ -2135,6 +1855,9 @@ class ParrotArray:
         Returns:
             A new ParrotArray backed by a ZipIterator of (value, index)
         """
+
+        if self.has_mask:
+            return self._apply_mask_if_needed().enumerate()
         indices_iter = iterators.CountingIterator(np.int32(0))
         values_iter, restore_values = self._get_nestable_iterator()
         zip_iter = iterators.ZipIterator(values_iter, indices_iter)
@@ -2238,6 +1961,11 @@ class ParrotArray:
         if not isinstance(other, ParrotArray):
             raise ValueError("outer: other must be a ParrotArray")
 
+        if self.has_mask:
+            return self._apply_mask_if_needed().outer(other, op)
+        if other.has_mask:
+            return self.outer(other._apply_mask_if_needed(), op)
+
         this_size = self.length
         other_size = other.length
 
@@ -2262,9 +1990,9 @@ class ParrotArray:
 
         zip_op = self._sanitize_op(zip_op)
 
-        # Materialize both inputs so PermutationIterator has raw arrays
-        d_self = self.collect()
-        d_other = other.collect()
+        # Compose both producers directly; iterator children retain their owners.
+        d_self = self._get_composed_iterator()
+        d_other = other._get_composed_iterator()
 
         def row_index_op(idx):
             return idx // other_size
@@ -2332,7 +2060,9 @@ def array(data, dtype=np.int32):
 
 def scalar(value: Union[int, float], dtype=np.int32):
     """Create a single-element array with the given value."""
-    return constant(value, 1, dtype)
+    result = constant(value, 1, dtype)
+    result._shape = ()
+    return result
 
 
 def matrix(rows: int, cols: int, value: Union[int, float] = 0, dtype=np.int32):
@@ -2354,6 +2084,10 @@ def _identity_int(x: np.int64) -> np.int64:
 def _identity_float(x: np.float64) -> np.float64:
     """Identity function for float types."""
     return float(x)
+
+
+def _count_truth(value) -> np.int64:
+    return 1 if value else 0
 
 
 def _keep_pred(t) -> np.uint8:

@@ -35,10 +35,70 @@ print(result)  # 4
 - **Transform Composition**: Multiple transforms are efficiently composed into single operations
 - **Algorithmic Primitives**: Solve complex problems with elegant chains of operations
 
+## Fusion and array representations
+
+An array is a **materialized array**, **lazy array expression**, or **masked
+array expression**. A pending mask retains the physical input extent while
+its logical values are the positions where the mask is nonzero. Negative and
+other nonbinary mask values select once. `size()` and `shape` report logical
+selection length; obtaining them can evaluate predicates without storing values.
+
+| Operation | Materialized array | Lazy expression | Masked expression |
+| --- | --- | --- | --- |
+| `map(f)` | Lazy map | Compose maps | Masked map |
+| `map2(s,h)` — raw scalar | Lazy map | Compose maps | Masked map |
+| `map2(b,h)` — array | Lazy zip-map | Compose zip-maps | Compact → zip-map |
+| `rev()` | Indexed view | Compose indices | Reverse data and mask |
+| `gather(j)` | Indexed view | Compose indices | Compact → view |
+| `filter(p)` | Masked expression | Masked expression | Combine predicate masks |
+| `keep(m)` | Masked expression | Masked expression | Compact → mask |
+| `reduce(op,init)` | Read stored values | Evaluate input | Compact → reduce |
+| `scan(op,init)` | Read stored values | Evaluate input | Compact → scan |
+| `apply()` | Raises ValueError | Raises ValueError | Materialized array |
+
+F1 composes unary maps, F2 broadcasts a genuine scalar, F3 composes zip-maps,
+F4 composes valid index mappings, and F5 passes mapped iterators to consumers.
+F6 introduces a pending predicate mask. F7 preserves a mask through unary maps,
+raw scalar maps, reversal, and repeated filtering. These constructions do not
+count masks, allocate selected values, or launch selection. Compaction and
+`sum()` check selection before reading a mapped value. Repeated predicates
+short-circuit positions rejected by the preceding mask. A predicate can still
+read its own upstream producer when deciding whether to keep a position.
+
+Array `map2` compacts either masked operand before aligning their logical
+positions. Gather likewise interprets a masked index operand's selected values.
+A second `keep` aligns its mask with the receiver's selected sequence. Generic
+reduce and scan retain compaction boundaries; global `sum()` instead uses a
+guarded iterator without a compacted input buffer. Scans store their output.
+
+Maps and unary helpers return independent expressions, so branches can reuse a
+source safely. Assign the return value when using a standalone operation
+(for example, `a = a.map(f)`). Iterator children retain the source allocations they reference.
+No implicit cache is created: consuming an expression again can reevaluate it.
+Callbacks must be pure, and gather indices must be valid zero-based indices.
+Custom binary callbacks need inspectable Python source; lambdas, named functions,
+and captured scalar constants are supported.
+
+`scalar(s)` has shape `()` and broadcasts in either array-operand position.
+A length-one vector has shape `(1,)` and does not broadcast to another length.
+Scalar extension supports empty vectors and preserves a matrix operand's shape.
+Python retains its zero-based `range` and `enumerate`, one-based `where`,
+`reduce(op, init)` argument order, and
+NumPy output from generic `scan`; `sums` and similar helpers remain chainable.
+The array dtype controls stored output, including after an annotated callback;
+intermediate iterator types are preserved during composition. Array-array maps
+use the common NumPy operand dtype, while raw scalar maps retain the receiver's
+output dtype. Boolean `sum` counts into an integer. These are Python contracts,
+not a promise of identical C++ promotions or property-specialization dispatch.
+
+Run both the existing and fusion GPU tests with `python -m pytest python -q`.
+The Python GPU job in Unit Tests runs for PRs targeting `experimental-parrot-python`.
+The guarded iterator adapter requires cuda-cccl 1.2.1 or later.
+
 ## Installation
 
 ```bash
-pip install "numpy>=1.21.0,<2.5" cupy "cuda-cccl[cu13]"  # or [cu12] for CUDA 12
+pip install "numpy>=1.21.0,<2.5" cupy "cuda-cccl[cu13]>=1.2.1"  # or [cu12] for CUDA 12
 ```
 
 NumPy is temporarily limited to versions below 2.5 because `numba-cuda-mlir` 0.5.4 initializes a unitless `NaT`, which NumPy 2.5 deprecates. The bound can be lifted once the CUDA compiler dependency fixes that initialization.
@@ -52,7 +112,7 @@ NumPy is temporarily limited to versions below 2.5 because `numba-cuda-mlir` 0.5
 | `parrot.array(data, dtype=np.int32)`      | Create from list/array           |
 | `parrot.range(n, dtype=np.int32)`         | Create sequence [0, 1, ..., n-1] |
 | `parrot.constant(value, length, dtype)`   | Create constant sequence         |
-| `parrot.scalar(value, dtype=np.int32)`    | Create single-element array      |
+| `parrot.scalar(value, dtype=np.int32)`    | Create rank-zero scalar      |
 | `parrot.matrix(rows, cols, value, dtype)` | Create matrix (flattened)        |
 
 ### Unary Transforms (Lazy)
@@ -161,6 +221,8 @@ a == b     # Element-wise equality (returns 1/0)
 
 | Method                       | Description                                  |
 | ---------------------------- | -------------------------------------------- |
+| `.filter(predicate)` | Retain a lazy predicate mask |
+| `.keep(mask)` | Retain a pending selection mask |
 | `.where()`                   | Get 1-indexed positions of non-zero elements |
 | `.chunk_by_reduce(pred, op)` | Group consecutive elements and reduce        |
 
@@ -237,7 +299,7 @@ result = nums.rev().maxs().differ().prepend(1).rev().where()
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - NumPy
 - CuPy
 - CUDA toolkit with `cuda.compute` support (cuda-cccl)
