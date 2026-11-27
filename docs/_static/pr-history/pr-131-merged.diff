@@ -1,0 +1,88 @@
+diff --git a/parrot.hpp b/parrot.hpp
+index 88ac8766697e1c2d0d3bfed79447948df847d625..cc7d25d5d6592f1a18c992bbb2eff8ea6024aaab 100644
+--- a/parrot.hpp
++++ b/parrot.hpp
+@@ -833,6 +833,17 @@ struct run_pair_functor {
+     }
+ };
+ 
++// Keeps value where the mask selects it and yields 0 elsewhere. The mask is a
++// predicate, not a factor, so an excluded NaN or infinity cannot reach a sum.
++struct masked_value {
++    template <typename Mask, typename Value>
++    __host__ __device__ auto operator()(const Mask &mask,
++                                        const Value &value) const
++      -> decltype(1 * value) {
++        return mask != 0 ? value : 0;
++    }
++};
++
+ template <typename Value>
+ struct constant_truth_scan_functor {
+     Value first;
+@@ -2092,11 +2103,9 @@ class fusion_array {
+               properties<domain::zero, order::constant, true>>(result_value(0));
+         } else if constexpr (has_mask) {
+             // Zero out masked elements and sum (no materialization)
+-            if constexpr (is_boolean_v<Properties>) {
+-                return (_mask().neq(0) * _data()).template sum<Axis>();
+-            } else {
+-                return (_mask() * _data()).template sum<Axis>();
+-            }
++            return _mask()
++              .map2(_data(), detail::masked_value{})
++              .template sum<Axis>();
+         } else if constexpr (std::is_same_v<value_type, bool>) {
+             return as<int>().template sum<Axis>();
+         } else {
+diff --git a/tests/test_reductions.cu b/tests/test_reductions.cu
+index 5259c3b19b148a96f14e2b65b8217bbf37420ebd..5f3ea5ceb8c74793224ecdc0f51f11342e0bc607 100644
+--- a/tests/test_reductions.cu
++++ b/tests/test_reductions.cu
+@@ -16,6 +16,7 @@
+  */
+ 
+ #include <limits>
++#include <type_traits>
+ #include "parrot.hpp"
+ #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+ #include "test_common.hpp"
+@@ -204,6 +205,38 @@ TEST_CASE("ParrotTest - StatsModeNegativeTest") {
+     auto result = parrot::stats::mode(arr);
+     CHECK_EQ(result.value(), -1);  // -1 appears most frequently (3 times)
+ }
++
++// A keep mask selects elements, so its values must not scale them
++TEST_CASE("ParrotTest - MaskedSumTest") {
++    auto arr = parrot::array({1, 2, 3});
++    CHECK_EQ(arr.keep(parrot::array({2, 0, 3})).sum().value(), 4);
++    CHECK_EQ(arr.keep(parrot::array({-1, 0, 1})).sum().value(), 4);
++
++    auto fractional = parrot::array({1.5, 2.5}).keep(parrot::array({0.5, 0.0}));
++    CHECK_EQ(fractional.sum().value(), 1.5);
++    CHECK_EQ(fractional.sum().value(), fractional.apply().sum().value());
++
++    // An excluded NaN or infinity does not reach the sum, a kept one does
++    double const inf     = std::numeric_limits<double>::infinity();
++    double const nan_val = std::numeric_limits<double>::quiet_NaN();
++    auto first           = parrot::array({1, 0});
++    auto second          = parrot::array({0, 1});
++    CHECK_EQ(parrot::array({1.0, inf}).keep(first).sum().value(), 1.0);
++    CHECK_EQ(parrot::array({1.0, -inf}).keep(first).sum().value(), 1.0);
++    CHECK_EQ(parrot::array({1.0, nan_val}).keep(first).sum().value(), 1.0);
++    CHECK_EQ(parrot::array({1.0, inf}).keep(second).sum().value(), inf);
++    CHECK(std::isnan(parrot::array({1.0, nan_val}).keep(second).sum().value()));
++
++    // The result type follows the values, whatever the mask's type is
++    auto wide_mask = parrot::array({1.0, 0.0, 1.0});
++    CHECK((std::is_same_v<decltype(arr.keep(wide_mask).sum().value()), int>));
++    CHECK_EQ(arr.keep(wide_mask).sum().value(), 4);
++
++    // Boolean data still counts the kept true values
++    auto flags = arr.gt(1);
++    CHECK_EQ(flags.keep(parrot::array({2, 0, 3})).sum().value(), 1);
++}
++
+ __global__ void fill_stream_input(int *values, int offset) {
+     int i = threadIdx.x;
+     if (i < 8) { values[i] = i + offset; }

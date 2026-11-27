@@ -1,0 +1,10 @@
+🐛 Return min and max by value so lazy chains do not dangle
+
+parrot::min and parrot::max declared their result as
+decltype(a < b ? a : b), which is const T&. In a lazy chain such as
+arr.max(20).min(other), the reference points at a value that is gone by
+the time the next stage reads it. The existing CombinedArrayAndScalarTest
+expected {20, 15, 40, 30} for that chain; min(max(35, 20), 40) is 35, so
+the test passed only because it matched the dangling read. Return T,
+correct the expectation, and add a test that also checks that neither
+functor returns a reference.

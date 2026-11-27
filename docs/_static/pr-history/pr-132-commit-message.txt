@@ -1,0 +1,12 @@
+🐛 Apply the mask and return a copy from value()
+
+value() read *_begin, so it ignored the mask:
+array({10, 20, 30}).keep(array({0, 1, 1})).value() returned 10 instead
+of 20. For array-backed results it also returned a device_reference, so
+auto v = array({1, 2, 3}).sums().value() read freed storage once the
+temporary was gone.
+
+Return front(), which already applies the mask and copies to a host
+value. Rank-0 reductions and pairs keep their result types. A masked
+array with no kept elements now throws std::invalid_argument, as front()
+does, and value() can no longer be assigned through.

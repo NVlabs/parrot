@@ -1,0 +1,54 @@
+{
+  "captured_at": "2026-11-20T22:08:51.223Z",
+  "pull_requests": [
+    {
+      "author": "0z5a",
+      "merged_at": "2026-11-10T00:09:06Z",
+      "number": 133,
+      "title": "🐛 Broadcast a rank-0 operand to an empty array without reading it",
+      "url": "https://github.com/NVlabs/parrot/pull/133"
+    },
+    {
+      "author": "0z5a",
+      "merged_at": "2026-11-08T16:18:11Z",
+      "number": 132,
+      "title": "🐛 Apply the mask and return a copy from value()",
+      "url": "https://github.com/NVlabs/parrot/pull/132"
+    },
+    {
+      "author": "0z5a",
+      "merged_at": "2026-11-08T16:17:12Z",
+      "number": 131,
+      "title": "🐛 Treat the keep mask as a predicate in masked sum",
+      "url": "https://github.com/NVlabs/parrot/pull/131"
+    },
+    {
+      "author": "0z5a",
+      "merged_at": "2026-11-03T18:16:43Z",
+      "number": 126,
+      "title": "🐛 Apply keep/filter masks in structural operations and keep operands alive",
+      "url": "https://github.com/NVlabs/parrot/pull/126"
+    },
+    {
+      "author": "0z5a",
+      "merged_at": "2026-11-03T18:17:41Z",
+      "number": 125,
+      "title": "🐛 Return min and max by value so lazy chains do not dangle",
+      "url": "https://github.com/NVlabs/parrot/pull/125"
+    },
+    {
+      "author": "0z5a",
+      "merged_at": "2026-11-02T21:46:24Z",
+      "number": 124,
+      "title": "🐛 Apply keep/filter masks in map, map_adj, rand and array map2",
+      "url": "https://github.com/NVlabs/parrot/pull/124"
+    },
+    {
+      "author": "0z5a",
+      "merged_at": "2026-09-28T14:16:29Z",
+      "number": 108,
+      "title": "Propagate explicit CUDA stream through segmented reductions",
+      "url": "https://github.com/NVlabs/parrot/pull/108"
+    }
+  ]
+}

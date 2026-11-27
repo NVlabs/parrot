@@ -1,0 +1,36 @@
+## What
+
+After `keep()` or `filter()`, these operations still run over every element of the source array:
+
+- `map`, and therefore `sq`, `sqrt`, `log`, `exp`, `dble`, `half`, `as<>`, `odd` and `even`;
+- `map_adj`, and therefore `deltas` and `differ`;
+- `rand`;
+- the array overload of `map2`, and therefore `add`/`sub`/... with an array operand, when either side is masked.
+
+`map` builds a `no_mask_t` array from the unfiltered `_begin`/`_end`. `map_adj` and `map2(array)` mix the masked `size()` with unmasked iterators, and `rand` zips `indices + size()` with the full range.
+
+```cpp
+auto arr  = parrot::array({1, 2, 3, 4});
+auto kept = arr.keep(parrot::array({1, 0, 1, 0}));  // {1, 3}
+kept.sq().sum();  // main: 30 (1+4+9+16), expected 10
+```
+
+`abs`, `neg`, `sign`, `drand` and the scalar `map2` already handle this with `if constexpr (has_mask) { return apply()...; }`. This PR adds the same guard to the four remaining functions. For `map2(array)`, a masked right-hand operand is materialized too.
+
+## Diff size
+
+Most of the `parrot.hpp` diff is the original bodies moving into the `else` branch. `git diff -w` shows +25/-5 for `parrot.hpp`.
+
+## Tests
+
+The new `MaskedElementwiseTest` in `tests/test_advanced_operations.cu` covers `sq`, `dble`, `sum` after `sq`, `deltas`, `add` with a masked left operand, a masked right operand and both masked, `sq` after `filter`, and `rand` after `keep`. The `rand` case is deterministic because the kept values are 0.
+
+All runs are on one B300 (`-DCUDA_ARCH=103`), CUDA 13.3, `main` at 4ff8326:
+
+| `test_advanced` | Result |
+|---|---|
+| `main` | 19/19 test cases pass |
+| new test on `main`'s `parrot.hpp` | 9 of the 9 new assertions fail; e.g. `kept.sq().sum()` returns 30 |
+| this PR | 20/20 test cases, 45/45 assertions pass |
+
+`clang-format-21 --dry-run --Werror` passes on both files.

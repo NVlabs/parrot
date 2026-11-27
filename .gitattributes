@@ -1,2 +1,5 @@
 # Override GitHub language detection for CUDA header files
 *.hpp linguist-language=Cuda
+
+# Preserve the spaces required by archived unified-diff context lines.
+docs/_static/pr-history/*.diff -whitespace

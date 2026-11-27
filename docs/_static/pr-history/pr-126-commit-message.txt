@@ -1,0 +1,13 @@
+🐛 Apply keep/filter masks in structural operations and keep operands alive
+
+After keep() or filter(), take, drop, cycle, reshape, flatten, keep,
+filter, gather, match, chunk_by_reduce, pairs/enumerate and outer still
+read the whole source array; chunk_by_reduce then writes past the end of
+its result buffer, and pairs/enumerate read past the end of the other
+operand. A masked argument to pairs, outer, cross, match, gather, keep or
+replicate was read without its mask as well. Materialize masked arrays
+first, as #124 did for map and map2.
+
+gather, pairs and outer (and cross through pairs) also kept only the
+receiver's storage, so a temporary argument was freed while the lazy
+result still pointed at it. Keep both operands alive, as map2 does.
